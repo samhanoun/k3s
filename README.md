@@ -27,8 +27,13 @@ A comprehensive guide for beginners to understand and deploy a production-ready 
 13. [Networking In Depth](#networking-in-depth)
 14. [Storage Concepts](#storage-concepts)
 15. [Security Concepts](#security-concepts)
-16. [Troubleshooting](#troubleshooting)
-17. [Glossary](#glossary)
+16. [GitOps with ArgoCD](#gitops-with-argocd)
+17. [Package Management with Helm](#package-management-with-helm)
+18. [CI/CD with GitHub Actions](#cicd-with-github-actions)
+19. [Monitoring with Prometheus and Grafana](#monitoring-with-prometheus-and-grafana)
+20. [External Access with Cloudflare Tunnel](#external-access-with-cloudflare-tunnel)
+21. [Troubleshooting](#troubleshooting)
+22. [Glossary](#glossary)
 
 ---
 
@@ -1977,35 +1982,1864 @@ data:
 - Use external secret management (Vault, AWS Secrets Manager)
 - Apply RBAC to limit secret access
 
-**Using ConfigMaps and Secrets:**
+---
+
+## GitOps with ArgoCD
+
+### What is GitOps?
+
+GitOps is a modern approach to continuous deployment that uses Git as the single source of truth for declarative infrastructure and applications. Instead of manually running `kubectl apply` commands, GitOps tools watch your Git repository and automatically sync changes to your cluster.
+
+**The Traditional Approach:**
+
+```
+Developer --> Write YAML --> kubectl apply --> Cluster
+                                   |
+                            Manual process
+                            Error-prone
+                            No audit trail
+                            Hard to rollback
+```
+
+**The GitOps Approach:**
+
+```
+Developer --> Write YAML --> Git Push --> [GitOps Tool] --> Cluster
+                                               |
+                                         Automatic sync
+                                         Version controlled
+                                         Full audit trail
+                                         Easy rollback (git revert)
+```
+
+**Key GitOps Principles:**
+
+1. **Declarative**: The entire system is described declaratively (YAML files)
+2. **Versioned**: All configuration is stored in Git with full history
+3. **Automated**: Changes are automatically applied to the cluster
+4. **Continuously Reconciled**: The tool continuously ensures cluster matches Git
+
+**Benefits of GitOps:**
+
+| Benefit | Description |
+|---------|-------------|
+| **Audit Trail** | Every change is a Git commit with author, timestamp, and message |
+| **Easy Rollback** | Revert to any previous state with `git revert` |
+| **Consistency** | Cluster always matches what's in Git |
+| **Collaboration** | Use pull requests for change review |
+| **Disaster Recovery** | Rebuild entire cluster from Git repository |
+| **Security** | No need for cluster credentials on CI servers |
+
+### What is ArgoCD?
+
+ArgoCD is a declarative, GitOps continuous delivery tool for Kubernetes. It's one of the most popular GitOps tools, known for its excellent web UI and robust synchronization features.
+
+**ArgoCD Architecture:**
+
+```
++------------------+     +-------------------+     +------------------+
+|   Git Repository |     |      ArgoCD       |     |   Kubernetes     |
+|                  |     |                   |     |   Cluster        |
+|  - apps/         |<----|  [Repo Server]    |     |                  |
+|  - argocd/       |     |       |           |     |  [Namespace 1]   |
+|  - manifests/    |     |       v           |---->|  [Namespace 2]   |
+|                  |     |  [Application     |     |  [Namespace 3]   |
++------------------+     |   Controller]     |     |                  |
+                         |       |           |     +------------------+
+                         |       v           |
+                         |  [API Server]     |
+                         |       |           |
+                         |       v           |
+                         |  [Web UI/CLI]     |
+                         +-------------------+
+```
+
+**ArgoCD Components:**
+
+| Component | Purpose |
+|-----------|---------|
+| **API Server** | Exposes API for Web UI, CLI, and CI/CD integrations |
+| **Repository Server** | Clones Git repos and generates Kubernetes manifests |
+| **Application Controller** | Monitors applications and compares live vs desired state |
+| **Dex** | Identity service for SSO integration |
+| **Redis** | Caching layer for improved performance |
+
+**Sync Strategies:**
+
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| **Manual** | Sync only when explicitly triggered | Production, careful deployments |
+| **Automated** | Automatically sync when Git changes | Development, staging |
+| **Auto-Prune** | Delete resources removed from Git | Clean up old resources |
+| **Self-Heal** | Revert manual changes to match Git | Enforce GitOps policy |
+
+### Installing ArgoCD
+
+**Step 1: Create ArgoCD Namespace**
+
+```bash
+kubectl create namespace argocd
+```
+
+**Step 2: Install ArgoCD**
+
+```bash
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
+This installs:
+- ArgoCD server (API and Web UI)
+- Application controller
+- Repository server
+- Dex (identity)
+- Redis (caching)
+
+**Step 3: Expose ArgoCD via LoadBalancer**
+
+```bash
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+```
+
+**Step 4: Get the External IP**
+
+```bash
+kubectl get svc argocd-server -n argocd
+```
+
+Expected output:
+```
+NAME            TYPE           CLUSTER-IP     EXTERNAL-IP    PORT(S)
+argocd-server   LoadBalancer   10.43.x.x      192.168.1.63   80:xxx/TCP,443:xxx/TCP
+```
+
+**Step 5: Get Initial Admin Password**
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
+
+**Step 6: Access Web UI**
+
+Open `https://192.168.1.63` in your browser:
+- Username: `admin`
+- Password: (from step 5)
+
+### ArgoCD Access Information
+
+| Item | Value |
+|------|-------|
+| **URL** | https://192.168.1.63 |
+| **Username** | admin |
+| **Password** | NUybZUjmKc4dDJyI |
+
+### Understanding ArgoCD Applications
+
+An ArgoCD "Application" is a Kubernetes custom resource that defines:
+- **Source**: Where to get manifests (Git repo, path, branch)
+- **Destination**: Where to deploy (cluster, namespace)
+- **Sync Policy**: How to keep in sync (manual/auto, prune, self-heal)
+
+**Application YAML Structure:**
 
 ```yaml
-# Method 1: As environment variables
-env:
-- name: DB_HOST
-  valueFrom:
-    configMapKeyRef:
-      name: db-config
-      key: host
-- name: DB_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: db-credentials
-      key: password
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-app                    # Application name in ArgoCD
+  namespace: argocd               # ArgoCD always runs in argocd namespace
+spec:
+  project: default                # ArgoCD project (default is fine for most cases)
+  
+  source:
+    repoURL: https://github.com/user/repo.git    # Git repository URL
+    targetRevision: HEAD                          # Branch, tag, or commit
+    path: apps/my-app                            # Path to manifests in repo
+    
+    # For Helm charts:
+    # chart: nginx
+    # helm:
+    #   values: |
+    #     replicas: 3
+  
+  destination:
+    server: https://kubernetes.default.svc       # Kubernetes API server
+    namespace: my-app                            # Target namespace
+  
+  syncPolicy:
+    automated:                    # Enable auto-sync
+      prune: true                 # Delete resources removed from Git
+      selfHeal: true              # Revert manual changes
+    syncOptions:
+    - CreateNamespace=true        # Create namespace if it doesn't exist
+```
 
-# Method 2: Mount as files
-volumeMounts:
-- name: config-vol
-  mountPath: /etc/config
-volumes:
-- name: config-vol
-  configMap:
-    name: app-config
+### Creating Your First ArgoCD Application
+
+**Example: Deploy Whoami Test Application**
+
+Create `apps/whoami/deployment.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+  namespace: whoami
+  labels:
+    app: whoami
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: whoami
+  template:
+    metadata:
+      labels:
+        app: whoami
+    spec:
+      containers:
+      - name: whoami
+        image: traefik/whoami:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami
+  namespace: whoami
+spec:
+  type: LoadBalancer
+  selector:
+    app: whoami
+  ports:
+  - port: 80
+    targetPort: 80
+```
+
+Create `argocd/applications/whoami.yaml`:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: whoami
+  namespace: argocd
+spec:
+  project: default
+  
+  source:
+    repoURL: https://github.com/samhanoun/k3s.git
+    targetRevision: HEAD
+    path: apps/whoami
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: whoami
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+```
+
+**Deploy the Application:**
+
+```bash
+kubectl apply -f argocd/applications/whoami.yaml
+```
+
+**Verify in ArgoCD UI:**
+
+1. Open https://192.168.1.63
+2. You should see "whoami" application
+3. Click on it to see the resource tree
+4. Status should show "Synced" and "Healthy"
+
+### GitOps Workflow
+
+**Daily Workflow:**
+
+```
+1. Developer makes changes to YAML files locally
+         |
+         v
+2. Git commit and push to repository
+         |
+         v
+3. ArgoCD detects changes (polls every 3 minutes by default)
+         |
+         v
+4. ArgoCD compares Git state vs Cluster state
+         |
+         v
+5. If different, ArgoCD syncs (auto or manual depending on policy)
+         |
+         v
+6. Changes appear in cluster
+```
+
+**Testing GitOps - Scaling Example:**
+
+```bash
+# Edit apps/whoami/deployment.yaml
+# Change: replicas: 2  -->  replicas: 3
+
+# Commit and push
+git add -A
+git commit -m "Scale whoami to 3 replicas"
+git push
+
+# Watch ArgoCD sync (or wait ~3 minutes for auto-sync)
+# Or manually sync in ArgoCD UI
+```
+
+### ArgoCD CLI (Optional)
+
+Install ArgoCD CLI for command-line management:
+
+**Windows (PowerShell):**
+
+```powershell
+# Download
+Invoke-WebRequest -Uri https://github.com/argoproj/argo-cd/releases/latest/download/argocd-windows-amd64.exe -OutFile argocd.exe
+
+# Move to PATH
+Move-Item argocd.exe C:\Windows\System32\argocd.exe
+```
+
+**Login:**
+
+```bash
+argocd login 192.168.1.63 --username admin --password NUybZUjmKc4dDJyI --insecure
+```
+
+**Common CLI Commands:**
+
+```bash
+# List applications
+argocd app list
+
+# Get application details
+argocd app get whoami
+
+# Sync application
+argocd app sync whoami
+
+# View application history
+argocd app history whoami
+
+# Rollback to previous version
+argocd app rollback whoami <revision>
+
+# Delete application
+argocd app delete whoami
+```
+
+### ArgoCD with Helm Charts
+
+ArgoCD can deploy Helm charts directly. Example for deploying Prometheus + Grafana:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 65.1.1
+    
+    helm:
+      values: |
+        grafana:
+          enabled: true
+          adminPassword: "your-password"
+          service:
+            type: LoadBalancer
+        
+        prometheus:
+          prometheusSpec:
+            retention: 7d
+            resources:
+              limits:
+                memory: 1Gi
+          service:
+            type: LoadBalancer
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true    # Required for CRDs
+```
+
+### Repository Structure for GitOps
+
+Recommended folder structure:
+
+```
+k3s/
+├── .github/
+│   └── workflows/           # CI/CD pipelines
+│       ├── lint.yaml
+│       ├── validate.yaml
+│       └── security.yaml
+├── apps/                    # Application manifests
+│   ├── whoami/
+│   │   └── deployment.yaml
+│   ├── nginx/
+│   │   └── deployment.yaml
+│   └── my-app/
+│       ├── deployment.yaml
+│       ├── service.yaml
+│       └── configmap.yaml
+├── argocd/                  # ArgoCD application definitions
+│   └── applications/
+│       ├── whoami.yaml
+│       ├── monitoring.yaml
+│       └── my-app.yaml
+├── dashboards/              # Grafana dashboards
+│   └── k3s-cluster-overview.json
+└── README.md
+```
+
+### ArgoCD Best Practices
+
+1. **Use Automated Sync with Self-Heal**: Ensures cluster always matches Git
+2. **Separate App Definitions**: Keep ArgoCD Applications in `argocd/` folder
+3. **Use Meaningful Commit Messages**: They appear in ArgoCD history
+4. **Enable Prune**: Clean up resources removed from Git
+5. **Use Projects**: Organize applications and control access
+6. **Set Resource Limits**: Prevent runaway deployments
+
+---
+
+## Package Management with Helm
+
+### What is Helm?
+
+Helm is the **package manager for Kubernetes**, similar to how `apt` works for Ubuntu or `npm` for Node.js. It simplifies deploying complex applications by packaging all Kubernetes resources into a single, versioned, configurable unit called a **Chart**.
+
+**The Problem Helm Solves:**
+
+Without Helm, deploying a complex application like Prometheus requires:
+- Creating 20+ YAML files manually
+- Managing dependencies between resources
+- Customizing values across multiple files
+- Tracking versions and upgrades
+- Rolling back if something goes wrong
+
+```
+Without Helm:
+  deployment.yaml + service.yaml + configmap.yaml + secret.yaml +
+  serviceaccount.yaml + clusterrole.yaml + clusterrolebinding.yaml +
+  ... (20+ more files)
+  
+  All must be:
+  - Created manually
+  - Customized individually  
+  - Applied in correct order
+  - Tracked for updates
+
+With Helm:
+  helm install prometheus prometheus-community/kube-prometheus-stack \
+    --set grafana.adminPassword=mypassword
+  
+  Done! All 50+ resources created, configured, and managed.
+```
+
+### Helm Concepts
+
+**1. Chart**
+
+A Helm package containing all Kubernetes resource definitions needed to run an application.
+
+```
+mychart/
+├── Chart.yaml          # Metadata (name, version, description)
+├── values.yaml         # Default configuration values
+├── templates/          # Kubernetes YAML templates
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── configmap.yaml
+│   └── _helpers.tpl    # Template helpers
+├── charts/             # Dependency charts
+└── README.md           # Documentation
+```
+
+**2. Repository**
+
+A server hosting Helm charts, similar to Docker Hub for images.
+
+| Repository | URL | Charts |
+|------------|-----|--------|
+| Bitnami | https://charts.bitnami.com/bitnami | PostgreSQL, Redis, WordPress |
+| Prometheus Community | https://prometheus-community.github.io/helm-charts | Prometheus, Grafana |
+| Jetstack | https://charts.jetstack.io | cert-manager |
+| Ingress-Nginx | https://kubernetes.github.io/ingress-nginx | Nginx Ingress |
+
+**3. Release**
+
+A specific instance of a chart running in your cluster. You can install the same chart multiple times with different release names.
+
+```bash
+# Install Prometheus chart as release named "monitoring"
+helm install monitoring prometheus-community/kube-prometheus-stack
+
+# Install same chart again as "monitoring-dev" for development
+helm install monitoring-dev prometheus-community/kube-prometheus-stack
+```
+
+**4. Values**
+
+Configuration that customizes a chart. Override defaults in `values.yaml`.
+
+```yaml
+# Default values.yaml in chart:
+replicaCount: 1
+image:
+  repository: nginx
+  tag: "1.21"
+
+# Your custom values:
+replicaCount: 3
+image:
+  tag: "1.25"
+```
+
+### How Helm Templates Work
+
+Helm uses Go templating to generate Kubernetes YAML from templates + values.
+
+**Template (templates/deployment.yaml):**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  template:
+    spec:
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        {{- if .Values.resources }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        {{- end }}
+```
+
+**Values (values.yaml):**
+
+```yaml
+replicaCount: 3
+image:
+  repository: nginx
+  tag: "1.25"
+resources:
+  limits:
+    memory: 128Mi
+    cpu: 100m
+```
+
+**Generated Output:**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-release-nginx
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+      - name: nginx
+        image: "nginx:1.25"
+        resources:
+          limits:
+            memory: 128Mi
+            cpu: 100m
+```
+
+### Installing Helm
+
+**Windows (PowerShell):**
+
+```powershell
+# Using Chocolatey
+choco install kubernetes-helm
+
+# Or using Scoop
+scoop install helm
+
+# Or download binary
+Invoke-WebRequest -Uri https://get.helm.sh/helm-v3.13.0-windows-amd64.zip -OutFile helm.zip
+Expand-Archive helm.zip -DestinationPath C:\helm
+# Add C:\helm\windows-amd64 to PATH
+```
+
+**Linux/WSL:**
+
+```bash
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+```
+
+**Verify Installation:**
+
+```bash
+helm version
+```
+
+### Basic Helm Commands
+
+```bash
+# Add a repository
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+# Search for charts
+helm search repo prometheus
+helm search repo nginx
+
+# Show chart information
+helm show chart prometheus-community/kube-prometheus-stack
+helm show values prometheus-community/kube-prometheus-stack  # Show all configurable values
+
+# Install a chart
+helm install <release-name> <chart> [flags]
+helm install my-nginx bitnami/nginx
+helm install my-nginx bitnami/nginx --namespace web --create-namespace
+helm install my-nginx bitnami/nginx -f my-values.yaml
+
+# List installed releases
+helm list
+helm list -A  # All namespaces
+
+# Get release information
+helm status my-nginx
+helm get values my-nginx
+helm get manifest my-nginx  # See generated YAML
+
+# Upgrade a release
+helm upgrade my-nginx bitnami/nginx --set replicaCount=3
+helm upgrade my-nginx bitnami/nginx -f new-values.yaml
+
+# Rollback to previous version
+helm rollback my-nginx 1  # Rollback to revision 1
+helm history my-nginx     # See revision history
+
+# Uninstall a release
+helm uninstall my-nginx
+
+# Dry run (see what would be created without applying)
+helm install my-nginx bitnami/nginx --dry-run --debug
+```
+
+### How We Use Helm in Your Cluster
+
+In your K3S cluster, we use Helm **through ArgoCD** rather than running `helm install` commands directly. This is the GitOps way!
+
+**Traditional Helm Workflow:**
+
+```
+Developer --> helm install --> Cluster
+                    |
+              Manual command
+              No version control
+              Hard to track changes
+```
+
+**GitOps + Helm Workflow (Your Setup):**
+
+```
+Developer --> Write ArgoCD App YAML --> Git Push --> ArgoCD --> Helm --> Cluster
+                                             |
+                                       Version controlled
+                                       Automatic sync
+                                       Full audit trail
+```
+
+### Your Helm Deployments via ArgoCD
+
+**1. Prometheus + Grafana Stack**
+
+We deploy the `kube-prometheus-stack` Helm chart via ArgoCD:
+
+**File:** `argocd/applications/monitoring.yaml`
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  
+  source:
+    # Helm repository URL
+    repoURL: https://prometheus-community.github.io/helm-charts
+    # Chart name
+    chart: kube-prometheus-stack
+    # Chart version (pin for reproducibility)
+    targetRevision: 65.1.1
+    
+    # Helm values (equivalent to -f values.yaml)
+    helm:
+      values: |
+        grafana:
+          enabled: true
+          adminPassword: "Wasko!!wasko1024"
+          service:
+            type: LoadBalancer
+        
+        prometheus:
+          prometheusSpec:
+            retention: 7d
+            resources:
+              limits:
+                memory: 1Gi
+          service:
+            type: LoadBalancer
+        
+        alertmanager:
+          enabled: true
+        
+        nodeExporter:
+          enabled: true
+        
+        kubeStateMetrics:
+          enabled: true
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+```
+
+**What This Creates:**
+
+When ArgoCD syncs this application, the Helm chart creates 50+ Kubernetes resources:
+
+| Resource Type | Count | Examples |
+|---------------|-------|----------|
+| Deployments | 5 | Grafana, Prometheus Operator, kube-state-metrics |
+| StatefulSets | 2 | Prometheus, Alertmanager |
+| Services | 10+ | Grafana, Prometheus, Alertmanager, exporters |
+| ConfigMaps | 15+ | Grafana dashboards, Prometheus config |
+| Secrets | 5+ | Grafana credentials, certificates |
+| ServiceAccounts | 8+ | For each component |
+| ClusterRoles | 5+ | RBAC permissions |
+| CustomResourceDefinitions | 8 | PrometheusRule, ServiceMonitor, etc. |
+
+All from a single ArgoCD Application definition!
+
+### Understanding Helm Values in ArgoCD
+
+The `helm.values` section in ArgoCD Application is equivalent to creating a `values.yaml` file:
+
+**ArgoCD Way:**
+
+```yaml
+source:
+  helm:
+    values: |
+      grafana:
+        adminPassword: "mypassword"
+        service:
+          type: LoadBalancer
+```
+
+**Equivalent Helm Command:**
+
+```bash
+# Create values.yaml
+cat > values.yaml << EOF
+grafana:
+  adminPassword: "mypassword"
+  service:
+    type: LoadBalancer
+EOF
+
+# Install with values
+helm install monitoring prometheus-community/kube-prometheus-stack -f values.yaml
+```
+
+### Finding Chart Values
+
+To know what values you can configure, check the chart's documentation:
+
+**Method 1: Helm Show Values**
+
+```bash
+# Add repo first
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
+# Show all configurable values
+helm show values prometheus-community/kube-prometheus-stack > all-values.yaml
+
+# This creates a 3000+ line file with all options!
+```
+
+**Method 2: Check GitHub/ArtifactHub**
+
+- Go to https://artifacthub.io
+- Search for your chart
+- Read the documentation and values
+
+**Method 3: Chart README**
+
+```bash
+helm show readme prometheus-community/kube-prometheus-stack
+```
+
+### Common Helm Charts for Home Lab
+
+| Chart | Repository | Purpose | Install Command |
+|-------|------------|---------|-----------------|
+| kube-prometheus-stack | prometheus-community | Full monitoring stack | `helm install monitoring prometheus-community/kube-prometheus-stack` |
+| nginx-ingress | ingress-nginx | Ingress controller | `helm install ingress ingress-nginx/ingress-nginx` |
+| cert-manager | jetstack | SSL certificate management | `helm install cert-manager jetstack/cert-manager` |
+| postgresql | bitnami | PostgreSQL database | `helm install db bitnami/postgresql` |
+| redis | bitnami | Redis cache | `helm install cache bitnami/redis` |
+| wordpress | bitnami | WordPress CMS | `helm install blog bitnami/wordpress` |
+| nextcloud | nextcloud | File hosting | `helm install files nextcloud/nextcloud` |
+| gitea | gitea | Self-hosted Git | `helm install git gitea/gitea` |
+
+### Helm vs Raw YAML vs Kustomize
+
+| Approach | Pros | Cons | Best For |
+|----------|------|------|----------|
+| **Raw YAML** | Simple, no tools needed | Repetitive, hard to customize | Simple apps, learning |
+| **Helm** | Powerful templating, versioning, rollback | Learning curve, complex charts | Complex apps, community charts |
+| **Kustomize** | Built into kubectl, overlay-based | Less flexible than Helm | Customizing existing YAML |
+
+**In Your Cluster:**
+- **Simple apps** (whoami): Raw YAML in `apps/` folder
+- **Complex apps** (Prometheus): Helm charts via ArgoCD
+
+### Upgrading Helm Releases via ArgoCD
+
+To upgrade a Helm-deployed application:
+
+**1. Change the chart version:**
+
+```yaml
+source:
+  targetRevision: 66.0.0  # Was 65.1.1
+```
+
+**2. Or change values:**
+
+```yaml
+helm:
+  values: |
+    prometheus:
+      prometheusSpec:
+        retention: 14d  # Was 7d
+```
+
+**3. Commit and push:**
+
+```bash
+git add -A
+git commit -m "Upgrade Prometheus retention to 14 days"
+git push
+```
+
+**4. ArgoCD automatically syncs the change!**
+
+### Helm Best Practices
+
+1. **Pin Chart Versions**: Always specify `targetRevision` for reproducibility
+2. **Use Values Files**: Keep configuration in Git, not command line
+3. **Check Before Upgrade**: Use `helm diff` plugin or ArgoCD's diff view
+4. **Document Custom Values**: Comment why you changed defaults
+5. **Use ArgoCD for GitOps**: Don't run `helm install` manually
+6. **Review Chart Updates**: Read changelog before upgrading
+
+---
+
+## CI/CD with GitHub Actions
+
+### What is CI/CD?
+
+**CI (Continuous Integration)**: Automatically test and validate code changes when pushed to Git.
+
+**CD (Continuous Delivery/Deployment)**: Automatically deploy validated changes to environments.
+
+```
+Developer Push --> [CI: Test & Validate] --> [CD: Deploy] --> Cluster
+                          |                        |
+                    - Lint YAML                - ArgoCD sync
+                    - Validate manifests       - Or kubectl apply
+                    - Security scan
+                    - Run tests
+```
+
+### GitHub Actions Overview
+
+GitHub Actions is a CI/CD platform built into GitHub. It runs workflows defined in YAML files when triggered by events (push, pull request, schedule).
+
+**Workflow Structure:**
+
+```yaml
+name: Workflow Name           # Display name
+
+on:                          # Triggers
+  push:
+    branches: [master]       # Run on push to master
+  pull_request:
+    branches: [master]       # Run on PR to master
+
+jobs:                        # Jobs to run
+  job-name:
+    runs-on: ubuntu-latest   # Runner OS
+    steps:                   # Steps in the job
+    - uses: actions/checkout@v4    # Check out code
+    - name: Step name
+      run: command           # Run command
+```
+
+### Your CI Workflows
+
+**1. YAML Lint Workflow** (`.github/workflows/lint.yaml`)
+
+Purpose: Validates YAML syntax in all your Kubernetes manifests.
+
+```yaml
+name: Lint YAML
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install yamllint
+      run: pip install yamllint
+    
+    - name: Lint YAML files
+      run: yamllint -d "{extends: relaxed, rules: {line-length: disable}}" apps/ argocd/
+```
+
+**What it does:**
+- Installs `yamllint` (YAML linter)
+- Checks all YAML files in `apps/` and `argocd/` folders
+- Uses "relaxed" rules with line-length disabled
+- Fails if YAML syntax errors are found
+
+**Common YAML Issues It Catches:**
+- Trailing whitespace (spaces at end of lines)
+- Inconsistent indentation
+- Missing colons or values
+- Duplicate keys
+- Invalid syntax
+
+**2. Kubernetes Validation Workflow** (`.github/workflows/validate.yaml`)
+
+Purpose: Validates that YAML files are valid Kubernetes manifests.
+
+```yaml
+name: Validate K8s Manifests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+    
+    - name: Validate manifests
+      run: |
+        for file in $(find apps -name "*.yaml" -o -name "*.yml"); do
+          echo "Validating $file"
+          kubectl apply --dry-run=client --validate=false -f "$file" || exit 1
+        done
+```
+
+**What it does:**
+- Installs kubectl
+- Finds all YAML files in `apps/` folder
+- Runs `kubectl apply --dry-run` to validate without applying
+- Uses `--validate=false` to skip server-side validation (needed for CRDs)
+- Fails if any manifest is invalid
+
+**3. Security Scan Workflow** (`.github/workflows/security.yaml`)
+
+Purpose: Scans Kubernetes manifests for security issues.
+
+```yaml
+name: Security Scan
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Kubescape
+      uses: kubescape/github-action@main
+      with:
+        files: "apps/"
+        format: "pretty"
+        threshold: 50
+```
+
+**What it does:**
+- Runs Kubescape security scanner
+- Checks for:
+  - Containers running as root
+  - Missing resource limits
+  - Privileged containers
+  - Missing security contexts
+  - Network policy issues
+- Fails if security score is below threshold (50%)
+
+**Security Issues Kubescape Catches:**
+
+| Issue | Risk | Fix |
+|-------|------|-----|
+| Running as root | Container escape | Add `securityContext.runAsNonRoot: true` |
+| No resource limits | Resource exhaustion | Add `resources.limits` |
+| Privileged container | Full host access | Remove `privileged: true` |
+| No readOnlyRootFilesystem | Malware persistence | Add `readOnlyRootFilesystem: true` |
+| Host network | Network sniffing | Remove `hostNetwork: true` |
+
+### Viewing Workflow Results
+
+**In GitHub:**
+
+1. Go to your repository on GitHub
+2. Click "Actions" tab
+3. See list of workflow runs
+4. Click on a run to see details
+5. Click on a job to see step logs
+
+**Status Badges:**
+
+Add badges to your README to show workflow status:
+
+```markdown
+![Lint](https://github.com/samhanoun/k3s/workflows/Lint%20YAML/badge.svg)
+![Validate](https://github.com/samhanoun/k3s/workflows/Validate%20K8s%20Manifests/badge.svg)
+![Security](https://github.com/samhanoun/k3s/workflows/Security%20Scan/badge.svg)
+```
+
+### Fixing Common CI Failures
+
+**Trailing Whitespace:**
+
+```bash
+# Find trailing whitespace
+grep -r " $" apps/
+
+# Fix with sed (Linux/Mac)
+find apps -name "*.yaml" -exec sed -i 's/[[:space:]]*$//' {} \;
+
+# Fix in VS Code
+# Settings: files.trimTrailingWhitespace = true
+```
+
+**Invalid YAML Syntax:**
+
+```bash
+# Validate locally before pushing
+yamllint apps/
+
+# Common issues:
+# - Wrong indentation (use 2 spaces, not tabs)
+# - Missing quotes around special characters
+# - Missing colon after key
+```
+
+**Kubernetes Validation Errors:**
+
+```bash
+# Test locally
+kubectl apply --dry-run=client -f apps/my-app/deployment.yaml
+
+# Common issues:
+# - Wrong apiVersion
+# - Missing required fields
+# - Typo in field names
+```
+
+### CI/CD Best Practices
+
+1. **Run CI on Pull Requests**: Catch errors before merging
+2. **Use Branch Protection**: Require CI to pass before merge
+3. **Keep Workflows Fast**: Use caching, parallelize jobs
+4. **Fix Failures Immediately**: Don't let broken builds pile up
+5. **Use Secrets for Credentials**: Never commit passwords
+
+### GitHub + ArgoCD Integration
+
+The CI/CD and GitOps workflow together:
+
+```
+Developer --> Push to branch --> [GitHub Actions CI]
+                                       |
+                                   Tests pass?
+                                       |
+              +------------------------+------------------------+
+              |                                                 |
+            No (Fix and push again)                          Yes
+                                                               |
+                                                        Merge to master
+                                                               |
+                                                    [ArgoCD detects change]
+                                                               |
+                                                    [Auto-sync to cluster]
+                                                               |
+                                                    Application updated!
 ```
 
 ---
 
-## Networking In Depth
+## Monitoring with Prometheus and Grafana
+
+### Why Monitor Your Cluster?
+
+Monitoring is essential for:
+
+1. **Visibility**: Know what's happening in your cluster
+2. **Alerting**: Get notified before problems become outages
+3. **Debugging**: Diagnose issues quickly with historical data
+4. **Capacity Planning**: Understand resource usage trends
+5. **Performance**: Identify bottlenecks and optimize
+
+### The Monitoring Stack
+
+**Prometheus + Grafana** is the de facto standard for Kubernetes monitoring:
+
+```
++-------------+     +-------------+     +-------------+
+|   Nodes     |     | Prometheus  |     |   Grafana   |
+|             |     |             |     |             |
+| [exporters] |---->| [scrape]    |---->| [visualize] |
+|             |     | [store]     |     | [alert]     |
+| - node      |     | [query]     |     | [dashboard] |
+| - kubelet   |     |             |     |             |
+| - kube-state|     |             |     |             |
++-------------+     +-------------+     +-------------+
+```
+
+**Components:**
+
+| Component | Purpose |
+|-----------|---------|
+| **Prometheus** | Time-series database, scrapes and stores metrics |
+| **Grafana** | Visualization platform, creates dashboards |
+| **Node Exporter** | Exports node-level metrics (CPU, memory, disk) |
+| **kube-state-metrics** | Exports Kubernetes object metrics (pods, deployments) |
+| **Alertmanager** | Handles alerts from Prometheus |
+
+### What is Prometheus?
+
+Prometheus is an open-source monitoring system that:
+
+- **Scrapes** metrics from targets (pull-based)
+- **Stores** time-series data locally
+- **Queries** data using PromQL
+- **Alerts** based on rules
+
+**Prometheus Data Model:**
+
+```
+Metric name + Labels = Time series
+
+Example:
+  node_cpu_seconds_total{cpu="0", mode="idle"} = 12345.67
+  |___ metric name ____|  |_____ labels _____|   |_value_|
+
+Labels allow filtering:
+  node_cpu_seconds_total{mode="idle"}        # All idle CPU
+  node_cpu_seconds_total{cpu="0"}            # Only CPU 0
+  node_cpu_seconds_total{mode=~"idle|user"}  # Regex match
+```
+
+**PromQL Examples:**
+
+```promql
+# Current CPU usage percentage
+100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+# Memory usage percentage
+(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+
+# Pod restart count
+kube_pod_container_status_restarts_total
+
+# Request rate per second
+rate(http_requests_total[5m])
+```
+
+### What is Grafana?
+
+Grafana is a visualization platform that:
+
+- Creates beautiful **dashboards** with graphs, gauges, tables
+- Supports multiple **data sources** (Prometheus, InfluxDB, etc.)
+- Provides **alerting** capabilities
+- Allows **sharing** dashboards
+
+**Dashboard Components:**
+
+| Component | Purpose |
+|-----------|---------|
+| **Panel** | Individual visualization (graph, gauge, stat) |
+| **Row** | Horizontal grouping of panels |
+| **Dashboard** | Collection of panels |
+| **Variable** | Dynamic filter (namespace, pod, node) |
+| **Alert** | Notification when threshold exceeded |
+
+### Deploying the Monitoring Stack
+
+We deploy using the **kube-prometheus-stack** Helm chart via ArgoCD.
+
+**ArgoCD Application** (`argocd/applications/monitoring.yaml`):
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 65.1.1
+
+    helm:
+      values: |
+        # Grafana configuration
+        grafana:
+          enabled: true
+          adminPassword: "Wasko!!wasko1024"
+          service:
+            type: LoadBalancer
+          persistence:
+            enabled: false
+
+          # Import community dashboards
+          dashboardProviders:
+            dashboardproviders.yaml:
+              apiVersion: 1
+              providers:
+              - name: 'grafana-dashboards'
+                orgId: 1
+                folder: 'Community'
+                type: file
+                disableDeletion: false
+                editable: true
+                options:
+                  path: /var/lib/grafana/dashboards/grafana-dashboards
+
+          dashboards:
+            grafana-dashboards:
+              node-exporter-full:
+                gnetId: 1860
+                revision: 37
+                datasource: Prometheus
+
+        # Prometheus configuration
+        prometheus:
+          prometheusSpec:
+            retention: 7d
+            resources:
+              requests:
+                memory: 400Mi
+                cpu: 200m
+              limits:
+                memory: 1Gi
+                cpu: 1000m
+            storageSpec: {}
+          service:
+            type: LoadBalancer
+
+        # Alertmanager configuration
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            resources:
+              requests:
+                memory: 64Mi
+                cpu: 50m
+              limits:
+                memory: 128Mi
+                cpu: 100m
+          service:
+            type: ClusterIP
+
+        # Node exporter - metrics from nodes
+        nodeExporter:
+          enabled: true
+
+        # Kube-state-metrics - metrics from K8s objects
+        kubeStateMetrics:
+          enabled: true
+
+        # Prometheus Operator resources
+        prometheusOperator:
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 128Mi
+              cpu: 100m
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+```
+
+**Deploy:**
+
+```bash
+kubectl apply -f argocd/applications/monitoring.yaml
+```
+
+### Monitoring Access Information
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| **Grafana** | http://192.168.1.64 | admin / Wasko!!wasko1024 |
+| **Prometheus** | http://192.168.1.60:9090 | None required |
+| **Alertmanager** | ClusterIP only | kubectl port-forward |
+
+### Understanding Grafana Dashboards
+
+**Built-in Dashboards (from kube-prometheus-stack):**
+
+After installation, you'll find these dashboards in Grafana:
+
+| Dashboard | Location | Purpose |
+|-----------|----------|---------|
+| Kubernetes / Compute Resources / Cluster | General | Cluster-wide CPU, memory, network |
+| Kubernetes / Compute Resources / Namespace (Pods) | General | Per-namespace resource usage |
+| Kubernetes / Compute Resources / Node (Pods) | General | Per-node resource usage |
+| Kubernetes / Compute Resources / Pod | General | Individual pod metrics |
+| Kubernetes / Networking / Cluster | General | Network traffic overview |
+| Node Exporter / Nodes | General | Detailed node metrics |
+| CoreDNS | General | DNS query metrics |
+| etcd | General | etcd cluster health |
+
+**Importing Community Dashboards:**
+
+1. Go to Grafana → Dashboards → Import
+2. Enter dashboard ID from grafana.com
+3. Select Prometheus data source
+4. Click Import
+
+**Recommended Dashboard IDs:**
+
+| ID | Name | Purpose |
+|----|------|---------|
+| 1860 | Node Exporter Full | Comprehensive node metrics |
+| 315 | Kubernetes Cluster Monitoring | Cluster overview |
+| 13105 | K8s Pod Resource Monitoring | Pod-level details |
+| 6417 | Kubernetes Cluster (Prometheus) | Alternative cluster view |
+
+### Custom K3S Dashboard
+
+We created a custom dashboard specifically for K3S that uses the correct metric names.
+
+**File:** `dashboards/k3s-cluster-overview.json`
+
+**Panels Included:**
+
+| Panel | Metric Used | Description |
+|-------|-------------|-------------|
+| Cluster Memory Usage | `node_memory_MemAvailable_bytes` | Overall memory utilization |
+| Cluster CPU Usage | `node_cpu_seconds_total{mode="idle"}` | Overall CPU utilization |
+| Cluster Filesystem Usage | `node_filesystem_avail_bytes` | Disk space usage |
+| Nodes Status | `kube_node_info` | Count of nodes |
+| Memory by Node | `node_memory_MemTotal_bytes` | Per-node memory |
+| CPU by Node | `node_cpu_seconds_total` | Per-node CPU |
+| Pod Count by Namespace | `kube_pod_info` | Pods distribution |
+| Memory by Namespace | `container_memory_working_set_bytes` | Memory per namespace |
+| CPU by Namespace | `container_cpu_usage_seconds_total` | CPU per namespace |
+| Disk Usage by Node | `node_filesystem_*_bytes` | Per-node disk |
+| Network Traffic | `node_network_*_bytes_total` | Network I/O |
+
+**Importing the Custom Dashboard:**
+
+1. Open Grafana → Dashboards → Import
+2. Click "Upload JSON file"
+3. Select `dashboards/k3s-cluster-overview.json`
+4. Select Prometheus data source
+5. Click Import
+
+### Common Prometheus Queries
+
+**Node Metrics:**
+
+```promql
+# CPU usage percentage by node
+100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+# Memory usage percentage by node
+(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+
+# Disk usage percentage
+(1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100
+
+# Network receive rate
+rate(node_network_receive_bytes_total{device!~"lo|veth.*"}[5m])
+```
+
+**Kubernetes Metrics:**
+
+```promql
+# Pods per namespace
+count by(namespace) (kube_pod_info)
+
+# Container memory usage
+container_memory_working_set_bytes{container!=""}
+
+# Container CPU usage
+rate(container_cpu_usage_seconds_total{container!=""}[5m])
+
+# Pod restart count
+kube_pod_container_status_restarts_total
+
+# Deployment replicas vs desired
+kube_deployment_status_replicas / kube_deployment_spec_replicas
+```
+
+### Troubleshooting Monitoring Issues
+
+**Issue: Prometheus CrashLoopBackOff**
+
+```bash
+# Check logs
+kubectl logs -n monitoring prometheus-monitoring-kube-prometheus-prometheus-0
+
+# Common cause: Out of memory
+# Solution: Increase memory limit in monitoring.yaml
+resources:
+  limits:
+    memory: 1Gi  # Increase from default
+```
+
+**Issue: Grafana Dashboard Shows "No Data"**
+
+```bash
+# Check if Prometheus is scraping
+kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 9090:9090
+
+# Open http://localhost:9090/targets
+# All targets should be "UP"
+```
+
+**Issue: Dashboard Shows "N/A" Values**
+
+This usually means the metric names don't match. Different Kubernetes distributions use different metric names.
+
+```bash
+# Check available metrics
+kubectl exec -n monitoring prometheus-monitoring-kube-prometheus-prometheus-0 -- \
+  wget -qO- 'http://localhost:9090/api/v1/label/__name__/values' | head -100
+```
+
+### Alerting (Optional)
+
+Create alerting rules in Prometheus:
+
+```yaml
+# In monitoring.yaml, add to helm values:
+additionalPrometheusRules:
+- name: custom-rules
+  groups:
+  - name: cluster-health
+    rules:
+    - alert: HighMemoryUsage
+      expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.85
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory usage on {{ $labels.instance }}"
+        description: "Memory usage is above 85%"
+    
+    - alert: PodCrashLooping
+      expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Pod {{ $labels.pod }} is crash looping"
+```
+
+---
+
+## External Access with Cloudflare Tunnel
+
+### Why Cloudflare Tunnel?
+
+When you want to access your home lab services from the internet, you have several options:
+
+| Method | Pros | Cons |
+|--------|------|------|
+| **Port Forwarding** | Simple | Exposes IP, security risk, needs static IP |
+| **VPN** | Secure | Complex setup, need VPN client |
+| **Cloudflare Tunnel** | Secure, no port forwarding, free SSL | Requires Cloudflare account |
+
+**Cloudflare Tunnel** creates an outbound-only connection from your network to Cloudflare's edge. No inbound ports needed!
+
+```
+Internet Users
+      |
+      v
+[Cloudflare Edge]  <-- SSL termination, DDoS protection, caching
+      |
+      | (Cloudflare network)
+      v
+[Cloudflare Tunnel] <-- Outbound connection from your network
+      |
+      v
+[Your Services]  <-- K3S cluster, Grafana, etc.
+```
+
+### How Cloudflare Tunnel Works
+
+1. **cloudflared** daemon runs in your network (as container or service)
+2. It creates outbound connection to Cloudflare
+3. Cloudflare routes incoming requests through the tunnel
+4. Your services never directly exposed to internet
+
+**Benefits:**
+
+- **No Port Forwarding**: Router configuration unchanged
+- **No Static IP**: Works with dynamic IPs
+- **Free SSL**: Cloudflare provides certificates
+- **DDoS Protection**: Cloudflare's network protects you
+- **Access Control**: Add authentication if needed
+
+### Prerequisites
+
+1. **Cloudflare Account**: Free at cloudflare.com
+2. **Domain**: Either buy through Cloudflare or transfer existing
+3. **DNS on Cloudflare**: Domain must use Cloudflare DNS
+
+### Setting Up Cloudflare Tunnel
+
+**Step 1: Create Tunnel in Cloudflare Dashboard**
+
+1. Log into Cloudflare Zero Trust: https://one.dash.cloudflare.com/
+2. Go to **Networks** → **Tunnels**
+3. Click **Create a tunnel**
+4. Choose **Cloudflared** connector
+5. Name your tunnel (e.g., "home-lab" or "blue-mercurius")
+6. Save the tunnel token (you'll need this)
+
+**Step 2: Install cloudflared**
+
+You can run cloudflared as:
+- Docker container
+- Kubernetes deployment
+- System service on a VM
+
+**Option A: Run on a VM (Recommended for home lab):**
+
+```bash
+# On Ubuntu VM
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+chmod +x cloudflared
+sudo mv cloudflared /usr/local/bin/
+
+# Install as service with your tunnel token
+sudo cloudflared service install <YOUR_TUNNEL_TOKEN>
+```
+
+**Option B: Run as Kubernetes Deployment:**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflare
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest
+        args:
+        - tunnel
+        - --no-autoupdate
+        - run
+        - --token
+        - <YOUR_TUNNEL_TOKEN>
+```
+
+**Step 3: Configure Public Hostnames**
+
+In Cloudflare Zero Trust dashboard:
+1. Click on your tunnel
+2. Go to **Public Hostname** tab
+3. Add hostnames for each service
+
+### Your Cloudflare Tunnel Configuration
+
+**Tunnel Name:** blue-mercurius
+
+**Configured Routes:**
+
+| Subdomain | Service Type | Service URL | Notes |
+|-----------|--------------|-------------|-------|
+| proxmox.blue-mercurius.com | HTTPS | 192.168.1.100:8006 | Proxmox VE UI |
+| portainer.blue-mercurius.com | HTTPS | 192.168.1.187:9443 | Portainer (Docker) |
+| nord.blue-mercurius.com | HTTPS | 192.168.1.18:5678 | N8N automation |
+| n8nn.blue-mercurius.com | HTTPS | Railway app | External N8N |
+| wazuh.blue-mercurius.com | HTTPS | 192.168.1.189:443 | Security monitoring |
+| kalis.blue-mercurius.com | SSH | 192.168.1.212:22 | Kali Linux SSH |
+| semaphore.blue-mercurius.com | HTTP | 192.168.1.235:3000 | Ansible UI |
+| k3s-api.blue-mercurius.com | HTTPS | 192.168.1.50:6443 | K3S API server |
+| grafana.blue-mercurius.com | HTTP | 192.168.1.64:80 | Grafana dashboards |
+
+### Understanding Service Types
+
+When adding a hostname, you choose the service type:
+
+| Type | Use Case | Example |
+|------|----------|---------|
+| **HTTP** | Plain HTTP services | Grafana (port 80) |
+| **HTTPS** | HTTPS services | Proxmox, Portainer |
+| **SSH** | SSH access via browser | Terminal access |
+| **TCP** | Generic TCP | Databases (not recommended) |
+| **RDP** | Remote Desktop | Windows servers |
+
+**HTTP vs HTTPS:**
+
+- Use **HTTP** if your service runs plain HTTP (like Grafana on port 80)
+- Use **HTTPS** if your service has its own SSL certificate
+- Cloudflare always serves HTTPS to external users regardless
+
+### noTLSVerify Option
+
+When your internal service uses self-signed certificates (common for home lab), Cloudflare can't verify them. Enable **noTLSVerify** to skip certificate verification for the internal connection.
+
+```
+External User --> HTTPS --> [Cloudflare] --> HTTPS (no verify) --> [Your Service]
+                   ^                                                    ^
+              Valid cert                                        Self-signed cert
+          (Cloudflare provides)                                  (internal only)
+```
+
+**When to use noTLSVerify:**
+- Proxmox (uses self-signed cert)
+- Portainer (uses self-signed cert)
+- Kubernetes API (uses self-signed cert)
+- Any service with self-signed certificate
+
+### Exposing K3S API Server
+
+You can access your K3S cluster from anywhere using Cloudflare Tunnel:
+
+**Tunnel Configuration:**
+- Subdomain: `k3s-api`
+- Domain: `blue-mercurius.com`
+- Type: `HTTPS`
+- URL: `192.168.1.50:6443`
+- noTLSVerify: `Yes`
+
+**Using with kubectl:**
+
+```bash
+# Edit your kubeconfig to use the external endpoint
+kubectl config set-cluster k3s-external --server=https://k3s-api.blue-mercurius.com
+kubectl config set-context k3s-external --cluster=k3s-external --user=default
+
+# Use the external context
+kubectl --context=k3s-external get nodes
+```
+
+**Or create a separate kubeconfig:**
+
+```yaml
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://k3s-api.blue-mercurius.com
+    insecure-skip-tls-verify: true    # Because of Cloudflare in between
+  name: k3s-external
+contexts:
+- context:
+    cluster: k3s-external
+    user: default
+  name: k3s-external
+current-context: k3s-external
+users:
+- name: default
+  user:
+    client-certificate-data: <from original kubeconfig>
+    client-key-data: <from original kubeconfig>
+```
+
+### Exposing Grafana
+
+**Tunnel Configuration:**
+- Subdomain: `grafana`
+- Domain: `blue-mercurius.com`
+- Type: `HTTP` (Grafana runs plain HTTP)
+- URL: `192.168.1.64:80`
+- noTLSVerify: Not needed (HTTP)
+
+**Important:** Even though internal connection is HTTP, Cloudflare serves HTTPS to external users.
+
+**Access:** https://grafana.blue-mercurius.com
+
+### DNS Propagation
+
+After adding a hostname, DNS needs to propagate:
+
+```bash
+# Check if DNS is resolving
+nslookup grafana.blue-mercurius.com
+
+# If using Cloudflare DNS directly
+nslookup grafana.blue-mercurius.com 1.1.1.1
+
+# Flush local DNS cache (Windows)
+ipconfig /flushdns
+
+# Flush local DNS cache (macOS)
+sudo dscacheutil -flushcache
+```
+
+DNS propagation usually takes seconds with Cloudflare, but local DNS caches may delay resolution.
+
+### Troubleshooting Cloudflare Tunnel
+
+**Issue: "This site can't be reached" / DNS not resolving**
+
+```bash
+# Check Cloudflare DNS
+nslookup grafana.blue-mercurius.com 1.1.1.1
+
+# If it works with 1.1.1.1 but not default DNS, flush cache
+ipconfig /flushdns
+
+# Check tunnel status in Cloudflare dashboard
+# Tunnel should show as "Healthy"
+```
+
+**Issue: 502 Bad Gateway**
+
+- Service URL is wrong or service is down
+- Check service is running: `kubectl get svc -A`
+- Check service is reachable from cloudflared host
+
+**Issue: SSL errors with HTTPS services**
+
+- Enable noTLSVerify in tunnel config
+- Or use HTTP type if service supports it
+
+**Issue: Connection refused**
+
+- Check firewall on the service host
+- Check service is listening on correct port
+- Check cloudflared can reach the service IP
+
+### Cloudflare Access (Optional Security)
+
+Add authentication to your tunnels:
+
+1. In Cloudflare Zero Trust, go to **Access** → **Applications**
+2. Create an application for each service
+3. Configure authentication (email, Google, GitHub, etc.)
+4. Users must authenticate before accessing service
+
+This adds a login page before accessing your services, even if you have the URL.
+
+### External Access Summary
+
+| Service | Internal URL | External URL |
+|---------|--------------|--------------|
+| K3S API | https://192.168.1.50:6443 | https://k3s-api.blue-mercurius.com |
+| Grafana | http://192.168.1.64 | https://grafana.blue-mercurius.com |
+| Prometheus | http://192.168.1.60:9090 | Not exposed (internal only) |
+| ArgoCD | https://192.168.1.63 | Not exposed (internal only) |
+| Kubernetes Dashboard | https://192.168.1.62 | Not exposed (internal only) |
+
+**Security Note:** Only expose services you need externally. Keep internal tools (Prometheus, ArgoCD) internal unless necessary.
+
+---
 
 ### The Kubernetes Networking Model
 
@@ -2755,6 +4589,68 @@ This glossary provides detailed explanations of all Kubernetes and related terms
 | **CoreDNS** | DNS server for cluster service discovery. Resolves service names to IPs. | my-svc.default.svc.cluster.local |
 | **Traefik** | Ingress controller and reverse proxy. K3S includes it (disabled in your setup). | Routes HTTP traffic |
 | **containerd** | Container runtime used by K3S. Lighter than Docker. CRI-compliant. | Runs containers |
+| **ArgoCD** | GitOps continuous delivery tool for Kubernetes. Syncs cluster state with Git repository. | https://192.168.1.63 |
+| **Prometheus** | Time-series database for metrics. Scrapes and stores monitoring data. | http://192.168.1.60:9090 |
+| **Grafana** | Visualization and dashboarding platform. Creates graphs from Prometheus data. | http://192.168.1.64 |
+| **Helm** | Package manager for Kubernetes. Uses charts to deploy complex applications. | helm install prometheus prometheus-community/kube-prometheus-stack |
+| **Cloudflare Tunnel** | Secure tunnel to expose services without port forwarding. Creates outbound connection. | cloudflared service |
+| **yamllint** | YAML syntax validator and linter. Checks formatting and syntax errors. | yamllint apps/ |
+| **Kubescape** | Security scanner for Kubernetes. Checks for vulnerabilities and misconfigurations. | kubescape scan |
+
+### GitOps Concepts
+
+| Term | Definition | Example/Details |
+|------|------------|-----------------|
+| **GitOps** | Operations model using Git as single source of truth. Changes made via Git commits. | Push to deploy |
+| **Sync** | Process of applying Git state to cluster. ArgoCD compares and applies differences. | ArgoCD sync |
+| **Self-Heal** | Automatic reversion of manual cluster changes to match Git state. | Someone deletes pod, ArgoCD recreates it |
+| **Prune** | Deletion of cluster resources that no longer exist in Git. | Remove YAML from Git, resource deleted |
+| **Application** | ArgoCD CRD defining source repository, path, and destination for deployment. | argocd/applications/whoami.yaml |
+| **Drift** | Difference between Git state and actual cluster state. | Manual change causes drift |
+| **Reconciliation** | Process of comparing and syncing desired vs actual state. | Runs continuously in ArgoCD |
+
+### Monitoring Concepts
+
+| Term | Definition | Example/Details |
+|------|------------|-----------------|
+| **Metric** | Numeric measurement collected over time. Has name, labels, and value. | node_cpu_seconds_total |
+| **Time Series** | Sequence of metric values indexed by timestamp. | CPU usage over last hour |
+| **Scrape** | Prometheus pulling metrics from a target endpoint. | Every 15 seconds by default |
+| **Exporter** | Service that exposes metrics in Prometheus format. | Node Exporter, kube-state-metrics |
+| **PromQL** | Prometheus Query Language for querying metrics. | rate(http_requests_total[5m]) |
+| **Dashboard** | Collection of visualizations showing metrics data. | K3S Cluster Overview |
+| **Panel** | Individual visualization in a dashboard (graph, gauge, stat). | CPU usage graph |
+| **Alert** | Notification triggered when metric exceeds threshold. | Memory > 85% |
+| **Alertmanager** | Handles alerts from Prometheus, routes notifications. | Sends email/Slack alerts |
+| **Retention** | How long Prometheus keeps historical data. | 7 days in your setup |
+
+### CI/CD Concepts
+
+| Term | Definition | Example/Details |
+|------|------------|-----------------|
+| **CI (Continuous Integration)** | Automated testing and validation on code changes. | GitHub Actions runs on push |
+| **CD (Continuous Delivery)** | Automated deployment of validated changes. | ArgoCD syncs after CI passes |
+| **Workflow** | GitHub Actions automation definition in YAML. | .github/workflows/lint.yaml |
+| **Job** | Set of steps that run on same runner in workflow. | lint job |
+| **Step** | Individual task in a job (run command, use action). | Install yamllint |
+| **Runner** | Server that executes workflow jobs. | ubuntu-latest |
+| **Action** | Reusable workflow component from marketplace. | actions/checkout@v4 |
+| **Artifact** | File or data produced by workflow (logs, binaries). | Test reports |
+| **Lint** | Static analysis to check code style and syntax. | yamllint for YAML |
+| **Dry Run** | Test execution without making changes. | kubectl apply --dry-run |
+
+### Cloudflare Concepts
+
+| Term | Definition | Example/Details |
+|------|------------|-----------------|
+| **Tunnel** | Secure outbound connection from your network to Cloudflare. | blue-mercurius tunnel |
+| **cloudflared** | Daemon that establishes and maintains tunnel connection. | Runs as service |
+| **Public Hostname** | Domain/subdomain routed through tunnel to internal service. | grafana.blue-mercurius.com |
+| **Origin** | Your internal service that tunnel connects to. | 192.168.1.64:80 |
+| **noTLSVerify** | Skip TLS certificate verification for self-signed certs. | Required for Proxmox, K3S API |
+| **Zero Trust** | Cloudflare's platform for secure access (tunnels, access policies). | one.dash.cloudflare.com |
+| **Access** | Cloudflare feature to add authentication to tunneled services. | Email/Google/GitHub login |
+| **DNS Propagation** | Time for DNS changes to spread globally. | Usually seconds with Cloudflare |
 
 ---
 
@@ -2918,9 +4814,19 @@ alias ke='kubectl exec -it'
 | Service | URL | Description |
 |---------|-----|-------------|
 | Kubernetes API | https://192.168.1.50:6443 | Cluster API (via VIP) |
-| Nginx (test) | http://192.168.1.60 | Test deployment |
+| ArgoCD | https://192.168.1.63 | GitOps CD platform |
+| Grafana | http://192.168.1.64 | Monitoring dashboards |
+| Prometheus | http://192.168.1.60:9090 | Metrics database |
 | Portainer | https://192.168.1.61:9443 | Kubernetes management UI |
 | Kubernetes Dashboard | https://192.168.1.62 | Official Kubernetes dashboard |
+| Whoami | http://192.168.1.65 | Test application |
+
+**External URLs (via Cloudflare Tunnel):**
+
+| Service | External URL |
+|---------|--------------|
+| K3S API | https://k3s-api.blue-mercurius.com |
+| Grafana | https://grafana.blue-mercurius.com |
 
 **Network Ranges:**
 
@@ -3089,12 +4995,36 @@ kubectl delete deployment broken
 | Date | Version | Changes |
 |------|---------|---------|
 | November 27, 2025 | 1.0 | Initial comprehensive guide |
+| November 29, 2025 | 2.0 | Added GitOps with ArgoCD, CI/CD with GitHub Actions, Monitoring with Prometheus/Grafana, External Access with Cloudflare Tunnel |
 
 **Cluster Details:**
 - K3S Version: v1.26.10+k3s2
 - Kube-VIP Version: v0.6.3
 - MetalLB Version: v0.13.12
 - Ubuntu Version: 24.04 LTS
+- ArgoCD Version: Latest stable
+- kube-prometheus-stack Version: 65.1.1
+
+**Service URLs (Internal):**
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Kubernetes API | https://192.168.1.50:6443 | kubeconfig |
+| ArgoCD | https://192.168.1.63 | admin / NUybZUjmKc4dDJyI |
+| Grafana | http://192.168.1.64 | admin / Wasko!!wasko1024 |
+| Prometheus | http://192.168.1.60:9090 | - |
+| Kubernetes Dashboard | https://192.168.1.62 | token |
+| Portainer | https://192.168.1.61:9443 | user-defined |
+| Whoami | http://192.168.1.65 | - |
+
+**External URLs (Cloudflare Tunnel):**
+
+| Service | External URL |
+|---------|--------------|
+| K3S API | https://k3s-api.blue-mercurius.com |
+| Grafana | https://grafana.blue-mercurius.com |
+
+**GitHub Repository:** https://github.com/samhanoun/k3s
 
 **Author:** Generated with assistance from GitHub Copilot
 
