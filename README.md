@@ -1281,13 +1281,43 @@ After installation, you have these services running:
 
 ### Getting Dashboard Token
 
-The Kubernetes Dashboard requires a token for login:
+The Kubernetes Dashboard requires a token for login. There are two methods:
+
+**Method 1: Permanent Token (Recommended)**
+
+A permanent token secret has been created. To retrieve it:
+
+```bash
+ssh -i $env:USERPROFILE\.ssh\id_ed25519 tech@192.168.1.92 "kubectl get secret admin-user-token -n kubernetes-dashboard -o jsonpath='{.data.token}' | base64 -d"
+```
+
+This token does not expire and is stored as a Kubernetes secret.
+
+**Method 2: Temporary Token**
+
+Generate a temporary token (expires in 1 hour by default):
 
 ```bash
 ssh -i $env:USERPROFILE\.ssh\id_ed25519 tech@192.168.1.92 "kubectl -n kubernetes-dashboard create token admin-user"
 ```
 
-Copy the output token and paste it in the dashboard login page.
+Or generate a token valid for 24 hours:
+
+```bash
+ssh -i $env:USERPROFILE\.ssh\id_ed25519 tech@192.168.1.92 "kubectl -n kubernetes-dashboard create token admin-user --duration=24h"
+```
+
+**Using the Token:**
+
+1. Go to https://192.168.1.62
+2. Accept the self-signed certificate warning
+3. Select "Token" option
+4. Paste the token
+5. Click "Sign in"
+
+**Troubleshooting "Unauthorized (401)" Error:**
+
+If you get "Unauthorized (401): Invalid credentials provided", use the permanent token from Method 1. The temporary tokens from Method 2 may not work correctly with some Dashboard versions.
 
 ---
 
