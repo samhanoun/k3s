@@ -32,11 +32,11 @@ spec:
             retention: 7d  # Keep 7 days of data
             resources:
               requests:
-                memory: 256Mi
-                cpu: 100m
+                memory: 400Mi
+                cpu: 200m
               limits:
-                memory: 512Mi
-                cpu: 500m
+                memory: 1Gi
+                cpu: 1000m
             storageSpec: {}  # Add persistent storage for production
           service:
             type: LoadBalancer
