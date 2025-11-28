@@ -20,7 +20,7 @@ spec:
         # Grafana configuration
         grafana:
           enabled: true
-          adminPassword: "admin123"  # Change this!
+          adminPassword: "Wasko!!wasko1024"
           service:
             type: LoadBalancer
           persistence:
