@@ -8,13 +8,13 @@ metadata:
   namespace: argocd
 spec:
   project: default
-  
+
   source:
     # Using Helm chart from prometheus-community
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
     targetRevision: 65.1.1  # Latest stable version
-    
+
     helm:
       values: |
         # Grafana configuration
@@ -25,7 +25,7 @@ spec:
             type: LoadBalancer
           persistence:
             enabled: false  # Enable for production
-          
+
           # Additional dashboards from grafana.com
           dashboardProviders:
             dashboardproviders.yaml:
@@ -39,7 +39,7 @@ spec:
                 editable: true
                 options:
                   path: /var/lib/grafana/dashboards/grafana-dashboards
-                  
+
           dashboards:
             grafana-dashboards:
               # Node Exporter Full - works great with K3S
@@ -49,8 +49,8 @@ spec:
                 datasource: Prometheus
               # Kubernetes / Compute Resources / Cluster (built into kube-prometheus)
               # Already included by default - no need to import
-          
-        # Prometheus configuration  
+
+        # Prometheus configuration
         prometheus:
           prometheusSpec:
             retention: 7d  # Keep 7 days of data
@@ -64,7 +64,7 @@ spec:
             storageSpec: {}  # Add persistent storage for production
           service:
             type: LoadBalancer
-            
+
         # Alertmanager configuration
         alertmanager:
           enabled: true
@@ -78,15 +78,15 @@ spec:
                 cpu: 100m
           service:
             type: ClusterIP
-            
+
         # Node exporter - metrics from nodes
         nodeExporter:
           enabled: true
-          
+
         # Kube-state-metrics - metrics from K8s objects
         kubeStateMetrics:
           enabled: true
-          
+
         # Reduce resource usage for home lab
         prometheusOperator:
           resources:
