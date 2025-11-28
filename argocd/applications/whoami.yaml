@@ -1,0 +1,22 @@
+# ArgoCD Application - Whoami
+# A simple test app that shows request info
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: whoami
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/samhanoun/k3s.git
+    targetRevision: master
+    path: apps/whoami
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
