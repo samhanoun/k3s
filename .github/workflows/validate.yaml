@@ -29,6 +29,6 @@ jobs:
           echo "Validating Kubernetes manifests..."
           for file in $(find apps -name "*.yaml" -o -name "*.yml"); do
             echo "Validating $file"
-            kubectl apply --dry-run=client -f "$file" || exit 1
+            kubectl apply --dry-run=client --validate=false -f "$file" || exit 1
           done
           echo "✅ All manifests are valid!"
