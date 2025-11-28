@@ -42,14 +42,13 @@ spec:
                   
           dashboards:
             grafana-dashboards:
-              k8s-cluster-monitoring:
-                gnetId: 15282
-                revision: 1
-                datasource: Prometheus
+              # Node Exporter Full - works great with K3S
               node-exporter-full:
                 gnetId: 1860
                 revision: 37
                 datasource: Prometheus
+              # Kubernetes / Compute Resources / Cluster (built into kube-prometheus)
+              # Already included by default - no need to import
           
         # Prometheus configuration  
         prometheus:
