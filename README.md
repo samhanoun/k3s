@@ -27,13 +27,14 @@ A comprehensive guide for beginners to understand and deploy a production-ready 
 13. [Networking In Depth](#networking-in-depth)
 14. [Storage Concepts](#storage-concepts)
 15. [Security Concepts](#security-concepts)
-16. [GitOps with ArgoCD](#gitops-with-argocd)
-17. [Package Management with Helm](#package-management-with-helm)
-18. [CI/CD with GitHub Actions](#cicd-with-github-actions)
-19. [Monitoring with Prometheus and Grafana](#monitoring-with-prometheus-and-grafana)
-20. [External Access with Cloudflare Tunnel](#external-access-with-cloudflare-tunnel)
-21. [Troubleshooting](#troubleshooting)
-22. [Glossary](#glossary)
+16. [Backup & Disaster Recovery](#backup--disaster-recovery)
+17. [GitOps with ArgoCD](#gitops-with-argocd)
+18. [Package Management with Helm](#package-management-with-helm)
+19. [CI/CD with GitHub Actions](#cicd-with-github-actions)
+20. [Monitoring with Prometheus and Grafana](#monitoring-with-prometheus-and-grafana)
+21. [External Access with Cloudflare Tunnel](#external-access-with-cloudflare-tunnel)
+22. [Troubleshooting](#troubleshooting)
+23. [Glossary](#glossary)
 
 ---
 
@@ -4177,6 +4178,123 @@ spec:
 ```
 
 **Default Behavior:** All traffic is allowed. NetworkPolicies add restrictions.
+
+---
+
+## Backup & Disaster Recovery
+
+### Understanding Etcd
+
+Etcd is the heart of Kubernetes - it stores all cluster state:
+- Node information
+- Pod specifications
+- ConfigMaps and Secrets
+- Service definitions
+- Persistent Volume claims
+
+**Without etcd backups, if your cluster fails catastrophically, you lose everything.**
+
+### K3S Etcd Snapshots
+
+K3S uses embedded etcd for HA clusters and provides built-in snapshot capabilities.
+
+**Manual Snapshot:**
+```bash
+# Create a snapshot (run on server node)
+sudo k3s etcd-snapshot save --name my-backup
+
+# List snapshots
+sudo k3s etcd-snapshot ls
+
+# Default location
+ls -la /var/lib/rancher/k3s/server/db/snapshots/
+```
+
+**Automatic Snapshots (K3S default):**
+- K3S automatically creates snapshots every 12 hours
+- Retains 5 snapshots by default
+- Configure in `/etc/rancher/k3s/config.yaml`:
+
+```yaml
+etcd-snapshot-schedule-cron: "0 */6 * * *"  # Every 6 hours
+etcd-snapshot-retention: 10                  # Keep 10 snapshots
+```
+
+### Automated Backup to Proxmox
+
+This repository includes scripts to back up etcd snapshots to your Proxmox host with rotation.
+
+**Setup (run on k3s-01):**
+```bash
+# 1. Ensure SSH key access to Proxmox
+ssh-copy-id root@<proxmox-ip>
+
+# 2. Copy scripts to server
+scp scripts/etcd-backup.sh scripts/setup-etcd-backup.sh tech@192.168.1.92:/tmp/
+
+# 3. SSH to k3s-01 and run setup
+ssh tech@192.168.1.92
+cd /tmp
+sudo ./setup-etcd-backup.sh <proxmox-ip> root
+```
+
+**What the Scripts Do:**
+
+| Script | Purpose |
+|--------|---------|
+| `etcd-backup.sh` | Creates snapshot, SCPs to Proxmox, rotates old backups |
+| `setup-etcd-backup.sh` | Installs backup script, configures cron job |
+
+**Rotation Policy (prevents storage saturation):**
+- Local: Keeps last 3 snapshots (~15MB each)
+- Remote (Proxmox): Keeps last 7 backups
+
+**Verify Backups:**
+```bash
+# View backup log
+tail -f /var/log/k3s-backup.log
+
+# Check local snapshots
+ls -lh /var/lib/rancher/k3s/server/db/snapshots/
+
+# Check Proxmox backups
+ssh root@<proxmox-ip> 'ls -lh /var/backups/k3s-etcd/'
+```
+
+### Disaster Recovery
+
+**Restore from Snapshot:**
+```bash
+# Stop K3S on all nodes first
+sudo systemctl stop k3s        # On servers
+sudo systemctl stop k3s-agent  # On agents
+
+# Restore on primary server (DESTRUCTIVE - resets cluster)
+sudo k3s server \
+  --cluster-reset \
+  --cluster-reset-restore-path=/var/lib/rancher/k3s/server/db/snapshots/my-backup.zip
+
+# Start K3S
+sudo systemctl start k3s
+
+# Rejoin other nodes (tokens are preserved)
+```
+
+**Restore from Proxmox Backup:**
+```bash
+# Copy backup from Proxmox
+scp root@<proxmox-ip>:/var/backups/k3s-etcd/k3s-homelab-20241207.zip /tmp/
+
+# Restore
+sudo k3s server \
+  --cluster-reset \
+  --cluster-reset-restore-path=/tmp/k3s-homelab-20241207.zip
+```
+
+**⚠️ Important Notes:**
+- `--cluster-reset` is destructive - it resets the cluster to the snapshot state
+- All changes after the snapshot are lost
+- Worker nodes may need to be restarted to rejoin
 
 ---
 
