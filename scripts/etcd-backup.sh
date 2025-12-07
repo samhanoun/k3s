@@ -72,14 +72,15 @@ create_snapshot() {
 rotate_local() {
     log "Rotating local snapshots (keeping last ${KEEP_LOCAL})"
     
-    # List snapshots, sort by date, remove old ones
-    local count=$(ls -1 "${LOCAL_SNAPSHOT_DIR}"/*.zip 2>/dev/null | wc -l)
+    # List snapshots, sort by date, remove old ones (K3S snapshots don't have .zip extension)
+    # Only count our custom backups (k3s-homelab-*), not K3S auto snapshots (etcd-snapshot-*)
+    local count=$(ls -1 "${LOCAL_SNAPSHOT_DIR}"/${CLUSTER_NAME}-* 2>/dev/null | wc -l)
     
     if [[ $count -gt $KEEP_LOCAL ]]; then
         local to_delete=$((count - KEEP_LOCAL))
         log "Removing ${to_delete} old local snapshot(s)"
         
-        ls -1t "${LOCAL_SNAPSHOT_DIR}"/*.zip | tail -n "${to_delete}" | while read -r file; do
+        ls -1t "${LOCAL_SNAPSHOT_DIR}"/${CLUSTER_NAME}-* | tail -n "${to_delete}" | while read -r file; do
             log "  Deleting: $(basename "$file")"
             rm -f "$file"
         done
@@ -91,8 +92,9 @@ rotate_local() {
 backup_to_proxmox() {
     log "Backing up to Proxmox host: ${PROXMOX_HOST}"
     
-    # Find the latest snapshot
-    local latest_snapshot=$(ls -1t "${LOCAL_SNAPSHOT_DIR}"/*.zip 2>/dev/null | head -1)
+    # Find the latest snapshot (K3S snapshots don't have .zip extension)
+    # Look for our custom backups first
+    local latest_snapshot=$(ls -1t "${LOCAL_SNAPSHOT_DIR}"/${CLUSTER_NAME}-* 2>/dev/null | head -1)
     
     if [[ -z "$latest_snapshot" ]]; then
         log "ERROR: No snapshot found to backup"
@@ -125,10 +127,10 @@ rotate_remote() {
     
     ssh "${PROXMOX_USER}@${PROXMOX_HOST}" bash -s << EOF
         cd "${PROXMOX_BACKUP_DIR}" 2>/dev/null || exit 0
-        count=\$(ls -1 *.zip 2>/dev/null | wc -l)
+        count=\$(ls -1 ${CLUSTER_NAME}-* 2>/dev/null | wc -l)
         if [[ \$count -gt ${KEEP_REMOTE} ]]; then
             to_delete=\$((count - ${KEEP_REMOTE}))
-            ls -1t *.zip | tail -n "\$to_delete" | xargs rm -f
+            ls -1t ${CLUSTER_NAME}-* | tail -n "\$to_delete" | xargs rm -f
             echo "  Removed \$to_delete old backup(s)"
         else
             echo "  No rotation needed (\$count backups present)"
@@ -139,15 +141,15 @@ EOF
 show_status() {
     log "=== Backup Status ==="
     
-    # Local status
-    local local_count=$(ls -1 "${LOCAL_SNAPSHOT_DIR}"/*.zip 2>/dev/null | wc -l)
+    # Local status (count our custom backups, not K3S auto snapshots)
+    local local_count=$(ls -1 "${LOCAL_SNAPSHOT_DIR}"/${CLUSTER_NAME}-* 2>/dev/null | wc -l)
     local local_size=$(du -sh "${LOCAL_SNAPSHOT_DIR}" 2>/dev/null | cut -f1)
     log "Local: ${local_count} snapshots, ${local_size:-0} total"
     
     # Remote status
     ssh "${PROXMOX_USER}@${PROXMOX_HOST}" bash -s << EOF 2>/dev/null || echo "  Cannot connect to Proxmox"
         if [[ -d "${PROXMOX_BACKUP_DIR}" ]]; then
-            count=\$(ls -1 "${PROXMOX_BACKUP_DIR}"/*.zip 2>/dev/null | wc -l)
+            count=\$(ls -1 "${PROXMOX_BACKUP_DIR}"/${CLUSTER_NAME}-* 2>/dev/null | wc -l)
             size=\$(du -sh "${PROXMOX_BACKUP_DIR}" 2>/dev/null | cut -f1)
             echo "Remote: \${count} backups, \${size} total"
         else
