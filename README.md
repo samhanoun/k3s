@@ -4291,7 +4291,7 @@ sudo k3s server \
   --cluster-reset-restore-path=/tmp/k3s-homelab-20241207.zip
 ```
 
-**⚠️ Important Notes:**
+**Important Notes:**
 - `--cluster-reset` is destructive - it resets the cluster to the snapshot state
 - All changes after the snapshot are lost
 - Worker nodes may need to be restarted to rejoin

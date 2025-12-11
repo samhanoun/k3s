@@ -35,7 +35,7 @@ fi
 # Step 1: Test SSH connection to Proxmox
 echo "[1/5] Testing SSH connection to Proxmox..."
 if ssh -o ConnectTimeout=5 "${PROXMOX_USER}@${PROXMOX_HOST}" "echo 'SSH OK'" 2>/dev/null; then
-    echo "  ✓ SSH connection successful"
+    echo "  [OK] SSH connection successful"
 else
     echo "  ✗ Cannot connect to Proxmox"
     echo ""
@@ -48,7 +48,7 @@ fi
 
 # Step 2: Create backup directory on Proxmox
 echo "[2/5] Creating backup directory on Proxmox..."
-ssh "${PROXMOX_USER}@${PROXMOX_HOST}" "mkdir -p ${BACKUP_DIR} && echo '  ✓ Directory created: ${BACKUP_DIR}'"
+ssh "${PROXMOX_USER}@${PROXMOX_HOST}" "mkdir -p ${BACKUP_DIR} && echo '  [OK] Directory created: ${BACKUP_DIR}'"
 
 # Step 3: Install backup script
 echo "[3/5] Installing backup script..."
@@ -71,7 +71,7 @@ chmod +x "${SCRIPT_DIR}/${SCRIPT_NAME}"
 sed -i "s/PROXMOX_HOST=\".*\"/PROXMOX_HOST=\"${PROXMOX_HOST}\"/" "${SCRIPT_DIR}/${SCRIPT_NAME}"
 sed -i "s/PROXMOX_USER=\".*\"/PROXMOX_USER=\"${PROXMOX_USER}\"/" "${SCRIPT_DIR}/${SCRIPT_NAME}"
 
-echo "  ✓ Script installed to ${SCRIPT_DIR}/${SCRIPT_NAME}"
+echo "  [OK] Script installed to ${SCRIPT_DIR}/${SCRIPT_NAME}"
 
 # Step 4: Set up cron job
 echo "[4/5] Setting up cron job (daily at 2:00 AM)..."
@@ -79,12 +79,12 @@ CRON_JOB="0 2 * * * ${SCRIPT_DIR}/${SCRIPT_NAME} >> /var/log/k3s-backup.log 2>&1
 
 # Check if cron job already exists
 if crontab -l 2>/dev/null | grep -q "etcd-backup.sh"; then
-    echo "  ⚠ Cron job already exists, updating..."
+    echo "  [WARN] Cron job already exists, updating..."
     (crontab -l 2>/dev/null | grep -v "etcd-backup.sh"; echo "${CRON_JOB}") | crontab -
 else
     (crontab -l 2>/dev/null; echo "${CRON_JOB}") | crontab -
 fi
-echo "  ✓ Cron job configured"
+echo "  [OK] Cron job configured"
 
 # Step 5: Run initial backup
 echo "[5/5] Running initial backup..."

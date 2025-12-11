@@ -38,7 +38,7 @@ jobs:
             echo "Validating $file"
             kubeconform -strict -summary "$file" || exit 1
           done
-          echo "✅ All manifests are valid!"
+          echo "All manifests are valid!"
 
       - name: Validate Kustomize builds
         run: |
@@ -47,4 +47,4 @@ jobs:
             echo "Validating kustomization in $dir"
             kubectl kustomize "$dir" > /dev/null || exit 1
           done
-          echo "✅ All Kustomize overlays are valid!"
+          echo "All Kustomize overlays are valid!"
