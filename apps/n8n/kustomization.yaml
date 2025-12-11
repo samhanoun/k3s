@@ -5,7 +5,7 @@ namespace: n8n
 
 resources:
   - namespace.yaml
-  - secret.yaml
+  - sealed-secret.yaml
   - pvc.yaml
   - deployment.yaml
   - service.yaml
