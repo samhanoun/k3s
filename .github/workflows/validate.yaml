@@ -34,9 +34,16 @@ jobs:
       - name: Validate Kubernetes manifests
         run: |
           echo "Validating Kubernetes manifests..."
+          # Use CRD schemas from datreeio catalog for custom resources like SealedSecret
+          SCHEMA_LOCATION="default"
+          CRD_SCHEMA="https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+          
           find apps -type f \( -name "*.yaml" -o -name "*.yml" \) ! -name "kustomization.yaml" | while read file; do
             echo "Validating $file"
-            kubeconform -strict -summary "$file" || exit 1
+            kubeconform -strict -summary \
+              -schema-location default \
+              -schema-location "$CRD_SCHEMA" \
+              "$file" || exit 1
           done
           echo "All manifests are valid!"
 
