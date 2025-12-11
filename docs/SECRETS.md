@@ -165,19 +165,73 @@ kubectl get secret n8n-secrets -n n8n -o jsonpath='{.data.N8N_ENCRYPTION_KEY}' |
 
 In addition to SealedSecrets (for Git), K3S can encrypt secrets at rest in etcd. This is a separate layer of protection.
 
+### Cluster Architecture
+
+Our K3S cluster has 3 control plane nodes:
+
+| Node | IP Address |
+|------|------------|
+| k3s-03 | 192.168.1.46 |
+| k3s-04 | 192.168.1.198 |
+| k3s-05 | 192.168.1.92 |
+
+### How It Works
+
+K3S secrets encryption uses AES-CBC encryption with a key managed by K3S. When enabled:
+
+1. **New secrets** are encrypted before being stored in etcd
+2. **Existing secrets** remain unencrypted until you run `reencrypt`
+3. **The encryption key** is stored at `/var/lib/rancher/k3s/server/cred/encryption-config.json`
+4. **Changes propagate via etcd** - you only need to run commands on one control plane node
+
 ### Enable Encryption at Rest
 
+Use the provided script or run manually:
+
 ```bash
-# On a control plane node
-sudo k3s secrets-encrypt enable
-sudo k3s secrets-encrypt reencrypt
+# Using the script (recommended)
+./scripts/setup-secrets-encryption.sh
+
+# Or manually on any control plane node
+ssh tech@192.168.1.46 "sudo k3s secrets-encrypt enable"
+ssh tech@192.168.1.46 "sudo k3s secrets-encrypt reencrypt"
 ```
 
 ### Check Status
 
+Verify encryption is enabled on all control plane nodes:
+
 ```bash
-sudo k3s secrets-encrypt status
+# Check all nodes
+for ip in 192.168.1.46 192.168.1.198 192.168.1.92; do
+  echo "--- $ip ---"
+  ssh tech@$ip "sudo k3s secrets-encrypt status"
+done
 ```
+
+Expected output when enabled:
+```
+Encryption Status: Enabled
+Current Rotation Stage: secrets_encrypted
+```
+
+### Rotate Encryption Key
+
+To rotate the encryption key (recommended periodically):
+
+```bash
+ssh tech@192.168.1.46 "sudo k3s secrets-encrypt rotate-keys"
+ssh tech@192.168.1.46 "sudo k3s secrets-encrypt reencrypt"
+```
+
+## Two Layers of Protection
+
+| Layer | Purpose | Protects Against |
+|-------|---------|------------------|
+| **Sealed Secrets** | Encrypt secrets in Git | Secrets exposed in source control |
+| **K3S Encryption at Rest** | Encrypt secrets in etcd | Direct etcd access, disk theft |
+
+Both layers work together for defense in depth.
 
 ## References
 
