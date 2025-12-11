@@ -1,0 +1,45 @@
+---
+# Backup etcd data from control plane
+# Usage: ansible-playbook playbooks/backup-etcd.yaml
+
+- name: Backup etcd from K3S control plane
+  hosts: control_plane[0]
+  become: true
+
+  vars:
+    backup_dir: /var/lib/rancher/k3s/server/db/snapshots
+    local_backup_dir: ../backups
+
+  tasks:
+    - name: Create local backup directory
+      file:
+        path: "{{ local_backup_dir }}"
+        state: directory
+      delegate_to: localhost
+      become: false
+
+    - name: Create etcd snapshot
+      command: k3s etcd-snapshot save --name manual-backup-{{ ansible_date_time.iso8601_basic_short }}
+      register: snapshot_result
+
+    - name: Find latest snapshot
+      find:
+        paths: "{{ backup_dir }}"
+        patterns: "manual-backup-*"
+      register: snapshot_files
+
+    - name: Get the latest snapshot
+      set_fact:
+        latest_snapshot: "{{ (snapshot_files.files | sort(attribute='mtime') | last).path }}"
+      when: snapshot_files.files | length > 0
+
+    - name: Fetch snapshot to local machine
+      fetch:
+        src: "{{ latest_snapshot }}"
+        dest: "{{ local_backup_dir }}/"
+        flat: yes
+      when: latest_snapshot is defined
+
+    - name: Display backup info
+      debug:
+        msg: "Backup saved: {{ latest_snapshot | default('No backup created') }}"

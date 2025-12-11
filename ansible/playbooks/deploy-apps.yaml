@@ -1,0 +1,62 @@
+---
+# Deploy applications using Kustomize
+# Usage: ansible-playbook playbooks/deploy-apps.yaml -e "app=n8n"
+# Or deploy all: ansible-playbook playbooks/deploy-apps.yaml
+
+- name: Deploy applications to K3S
+  hosts: control_plane[0]
+  become: true
+
+  vars:
+    apps_dir: /tmp/k3s-apps
+    app: ""  # Set via -e "app=n8n" or leave empty for all
+
+  tasks:
+    - name: Create temp directory
+      file:
+        path: "{{ apps_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy application manifests
+      copy:
+        src: "{{ playbook_dir }}/../../apps/"
+        dest: "{{ apps_dir }}/"
+        mode: '0644'
+
+    - name: Find all kustomization directories
+      find:
+        paths: "{{ apps_dir }}"
+        patterns: "kustomization.yaml"
+        recurse: yes
+      register: kustomizations
+      when: app == ""
+
+    - name: Deploy specific app
+      command: k3s kubectl apply -k "{{ apps_dir }}/{{ app }}"
+      when: app != ""
+      register: deploy_single
+
+    - name: Deploy all apps
+      command: k3s kubectl apply -k "{{ item.path | dirname }}"
+      loop: "{{ kustomizations.files | default([]) }}"
+      when: app == ""
+      register: deploy_all
+
+    - name: Wait for deployments to be ready
+      command: k3s kubectl rollout status deployment --all-namespaces --timeout=120s
+      changed_when: false
+
+    - name: Display deployment status
+      command: k3s kubectl get deployments --all-namespaces
+      register: deployments
+      changed_when: false
+
+    - name: Show results
+      debug:
+        msg: "{{ deployments.stdout_lines }}"
+
+    - name: Cleanup temp directory
+      file:
+        path: "{{ apps_dir }}"
+        state: absent
