@@ -4,7 +4,32 @@ This directory contains Ansible playbooks and configuration for managing the K3S
 
 ## Prerequisites
 
-Install Ansible on your local machine:
+### Windows Users (WSL2 Required)
+
+Ansible does not run natively on Windows. You must use WSL2 (Windows Subsystem for Linux):
+
+```bash
+# 1. Install WSL2 if not already installed (run in PowerShell as Admin)
+wsl --install
+
+# 2. Open WSL terminal and install Ansible
+sudo apt update
+sudo apt install ansible
+
+# 3. Copy your SSH key to WSL (one-time setup)
+mkdir -p ~/.ssh
+cp /mnt/c/Users/<YOUR_USERNAME>/Documents/k3s/id_ed25519 ~/.ssh/id_ed25519_k3s
+chmod 600 ~/.ssh/id_ed25519_k3s
+
+# 4. Copy Ansible files to WSL home (avoids Windows permission issues)
+mkdir -p ~/k3s-ansible
+cp -r /mnt/c/Users/<YOUR_USERNAME>/Documents/k3s/ansible/* ~/k3s-ansible/
+
+# 5. Update the key path in inventory (already done if you copied from repo)
+# The inventory references ~/.ssh/id_ed25519_k3s
+```
+
+### macOS / Linux
 
 ```bash
 # macOS
@@ -13,8 +38,7 @@ brew install ansible
 # Ubuntu/Debian
 sudo apt install ansible
 
-# Windows (WSL2)
-pip install ansible
+# Ensure your SSH key is at ~/.ssh/id_ed25519_k3s or update inventory/hosts.yaml
 ```
 
 ## Directory Structure
@@ -34,6 +58,27 @@ ansible/
 ```
 
 ## Quick Start
+
+### Windows (WSL2)
+
+```bash
+# Open WSL terminal
+wsl
+
+# Navigate to Ansible directory
+cd ~/k3s-ansible
+
+# Test connectivity to all nodes
+ansible all -m ping
+
+# Check cluster health
+ansible-playbook playbooks/health-check.yaml
+
+# Apply common configuration
+ansible-playbook playbooks/common.yaml
+```
+
+### macOS / Linux
 
 ```bash
 cd ansible
@@ -138,6 +183,27 @@ done
 
 ## Troubleshooting
 
+### Windows: Ansible won't run
+
+Ansible doesn't run natively on Windows. Use WSL2:
+
+```bash
+# Open WSL terminal and run from there
+wsl
+cd ~/k3s-ansible
+ansible all -m ping
+```
+
+### Windows: "world writable directory" warning
+
+This happens when running from Windows directories. Copy files to WSL home:
+
+```bash
+cp -r /mnt/c/Users/<YOUR_USERNAME>/Documents/k3s/ansible/* ~/k3s-ansible/
+cd ~/k3s-ansible
+ansible all -m ping
+```
+
 ### Connection refused
 
 ```bash
@@ -151,8 +217,14 @@ ansible-inventory --list
 ### Permission denied
 
 ```bash
-# Check SSH key
+# Verify SSH key fingerprint matches
+ssh-keygen -lf ~/.ssh/id_ed25519_k3s
+
+# Test SSH with verbose output
 ansible all -m ping -vvv
+
+# Ensure key has correct permissions
+chmod 600 ~/.ssh/id_ed25519_k3s
 ```
 
 ### Python not found
