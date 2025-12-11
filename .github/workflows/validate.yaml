@@ -27,8 +27,17 @@ jobs:
       - name: Validate Kubernetes manifests
         run: |
           echo "Validating Kubernetes manifests..."
-          for file in $(find apps -name "*.yaml" -o -name "*.yml"); do
+          for file in $(find apps -name "*.yaml" -o -name "*.yml" ! -name "kustomization.yaml"); do
             echo "Validating $file"
             kubectl apply --dry-run=client --validate=false -f "$file" || exit 1
           done
           echo "✅ All manifests are valid!"
+
+      - name: Validate Kustomize builds
+        run: |
+          echo "Validating Kustomize overlays..."
+          for dir in $(find apps -name "kustomization.yaml" -exec dirname {} \;); do
+            echo "Validating kustomization in $dir"
+            kubectl kustomize "$dir" > /dev/null || exit 1
+          done
+          echo "✅ All Kustomize overlays are valid!"
