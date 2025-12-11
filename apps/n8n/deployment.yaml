@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: n8n
+  labels:
+    app: n8n
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: n8n
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: n8n
+    spec:
+      containers:
+      - name: n8n
+        image: docker.n8n.io/n8nio/n8n:latest
+        ports:
+        - containerPort: 5678
+          name: http
+        env:
+        # Basic configuration
+        - name: N8N_HOST
+          value: "n8n.blue-mercurius.com"
+        - name: N8N_PORT
+          value: "5678"
+        - name: N8N_PROTOCOL
+          value: "https"
+        - name: WEBHOOK_URL
+          value: "https://n8n.blue-mercurius.com/"
+        
+        # Security settings
+        - name: N8N_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: n8n-secrets
+              key: N8N_ENCRYPTION_KEY
+        
+        # Disable basic auth on main UI (use Cloudflare Access instead)
+        # Enable basic auth on webhooks for extra security
+        - name: N8N_BASIC_AUTH_ACTIVE
+          value: "false"
+        
+        # Timezone
+        - name: GENERIC_TIMEZONE
+          value: "America/New_York"
+        - name: TZ
+          value: "America/New_York"
+        
+        # Data folder
+        - name: N8N_USER_FOLDER
+          value: "/home/node/.n8n"
+        
+        # Execution settings
+        - name: EXECUTIONS_DATA_PRUNE
+          value: "true"
+        - name: EXECUTIONS_DATA_MAX_AGE
+          value: "168"
+        
+        # Metrics for Prometheus (optional)
+        - name: N8N_METRICS
+          value: "true"
+        - name: N8N_METRICS_PREFIX
+          value: "n8n_"
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        
+        volumeMounts:
+        - name: n8n-data
+          mountPath: /home/node/.n8n
+        
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      
+      volumes:
+      - name: n8n-data
+        persistentVolumeClaim:
+          claimName: n8n-data
+      
+      securityContext:
+        fsGroup: 1000
