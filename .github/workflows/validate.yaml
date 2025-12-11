@@ -8,11 +8,13 @@ on:
     paths:
       - 'apps/**'
       - 'infrastructure/**'
+      - '.github/workflows/validate.yaml'
   pull_request:
     branches: [master, main]
     paths:
       - 'apps/**'
       - 'infrastructure/**'
+      - '.github/workflows/validate.yaml'
 
 jobs:
   validate:
