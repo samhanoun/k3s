@@ -1,0 +1,7 @@
+{
+    "github-actions.workflows.pinned.workflows": [
+        ".github/workflows/lint.yaml",
+        ".github/workflows/validate.yaml",
+        ".github/workflows/security.yaml"
+    ]
+}
