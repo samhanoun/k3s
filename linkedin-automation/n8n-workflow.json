@@ -1,0 +1,440 @@
+{
+  "name": "LinkedIn Content Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule: Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "linkedin-post",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook: Manual Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [0, 500]
+    },
+    {
+      "parameters": {
+        "url": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "resultsPerPage",
+              "value": "20"
+            },
+            {
+              "name": "cvssV3Severity",
+              "value": "HIGH,CRITICAL"
+            },
+            {
+              "name": "pubStartDate",
+              "value": "={{ $now.minus({days: 3}).toISO() }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-cve",
+      "name": "Fetch Recent CVEs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process CVE data and select the most impactful one\nconst vulnerabilities = items[0].json.vulnerabilities || [];\n\nif (vulnerabilities.length === 0) {\n  return [{ json: { skip: true, reason: 'No new CVEs found' } }];\n}\n\n// Sort by CVSS score (highest first)\nconst sorted = vulnerabilities.sort((a, b) => {\n  const scoreA = a.cve?.metrics?.cvssMetricV31?.[0]?.cvssData?.baseScore || 0;\n  const scoreB = b.cve?.metrics?.cvssMetricV31?.[0]?.cvssData?.baseScore || 0;\n  return scoreB - scoreA;\n});\n\n// Get top CVE\nconst topCVE = sorted[0].cve;\nconst cvssData = topCVE.metrics?.cvssMetricV31?.[0]?.cvssData || {};\n\n// Extract key information\nconst result = {\n  cveId: topCVE.id,\n  description: topCVE.descriptions?.find(d => d.lang === 'en')?.value || 'No description',\n  cvssScore: cvssData.baseScore || 'N/A',\n  severity: cvssData.baseSeverity || 'UNKNOWN',\n  attackVector: cvssData.attackVector || 'UNKNOWN',\n  published: topCVE.published,\n  references: topCVE.references?.slice(0, 3).map(r => r.url) || [],\n  affectedProducts: topCVE.configurations?.[0]?.nodes?.[0]?.cpeMatch?.slice(0, 3).map(c => c.criteria) || []\n};\n\nreturn [{ json: result }];"
+      },
+      "id": "process-cve",
+      "name": "Process CVE Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-cve-exists",
+      "name": "Has CVE Data?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a senior DevSecOps engineer with 10+ years of experience in cybersecurity, cloud infrastructure, and CI/CD pipelines. You've worked at major tech companies and have hands-on experience with Kubernetes, Terraform, AWS, Azure, and security tools.\n\nYour writing style is:\n- Conversational and authentic, like talking to a colleague\n- Based on real-world experience and lessons learned\n- Honest about mistakes you've made (relatable)\n- Technical but accessible to managers and beginners\n- Occasionally uses humor and personality\n\nCRITICAL RULES TO AVOID AI-DETECTION:\n1. NEVER use these overused words: \"delve\", \"leverage\", \"robust\", \"cutting-edge\", \"game-changer\", \"seamlessly\", \"innovative\", \"transformative\"\n2. NEVER start with \"In today's fast-paced world...\" or similar clichés\n3. NEVER use perfect parallel structure in lists (vary your sentence patterns)\n4. Include minor imperfections: contractions, sentence fragments, casual transitions\n5. Use first-person stories: \"Last week I...\", \"I learned the hard way that...\", \"Fun fact:\"\n6. Add natural hesitations: \"honestly\", \"I think\", \"probably\", \"in my experience\"\n7. Reference specific tools/versions, not generic concepts\n8. Include one controversial or unexpected opinion\n9. End with a genuine question, not a rhetorical one\n10. Vary post length - not every post should be the same structure\n\nFORMAT RULES:\n- Use emojis sparingly (2-4 per post, not at every bullet)\n- Keep paragraphs short (2-3 sentences max)\n- Use line breaks for readability\n- Include 3-5 relevant hashtags at the end (not inline)\n- For LinkedIn: optimal length is 1200-1800 characters"
+            },
+            {
+              "role": "user",
+              "content": "Create a LinkedIn post about this new CVE:\n\nCVE ID: {{ $json.cveId }}\nSeverity: {{ $json.severity }} (CVSS Score: {{ $json.cvssScore }})\nDescription: {{ $json.description }}\nAttack Vector: {{ $json.attackVector }}\nPublished: {{ $json.published }}\n\nContext:\n- Language: ENG\n- Length: medium (1200-1500 chars)\n- Tone: lessons learned (focus on practical response, not fear-mongering)\n- Target audience: developers and security teams\n\nSpecial instructions:\n- Focus on what teams should DO, not just what the CVE is\n- Include a brief mention of how to check if you're affected\n- End with a question to encourage comments\n- Don't mention specific company names\n\nGenerate ONLY the post content, ready to copy-paste to LinkedIn."
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 1000,
+          "temperature": 0.8
+        }
+      },
+      "id": "generate-content",
+      "name": "Generate Post Content",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [1000, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "generate",
+        "model": "dall-e-3",
+        "prompt": "Create a professional, minimalist infographic for LinkedIn about cybersecurity vulnerability {{ $('Process CVE Data').item.json.cveId }}.\n\nStyle requirements:\n- Clean, modern design with dark blue (#1a1a2e) background\n- Maximum 3-4 colors (blues, grays, red accent for severity)\n- Large, readable text showing: CVSS Score {{ $('Process CVE Data').item.json.cvssScore }}\n- Simple shield or lock icon, broken or cracked to show vulnerability\n- Professional tech aesthetic (like HashiCorp, AWS, or Cloudflare style)\n- NO stock photo feel, NO generic business imagery\n- NO faces or people\n- Text: \"{{ $('Process CVE Data').item.json.severity }} SEVERITY\" prominently displayed\n\nTechnical requirements:\n- Dimensions: 1200x627 pixels (LinkedIn recommended)\n- High contrast for mobile viewing",
+        "options": {
+          "size": "1792x1024",
+          "quality": "standard",
+          "style": "natural"
+        }
+      },
+      "id": "generate-image",
+      "name": "Generate Visual (DALL-E)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [1000, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine content and image for review\nconst postContent = items[0].json.message?.content || items[0].json.text || '';\nconst imageUrl = items[1]?.json?.data?.[0]?.url || '';\nconst cveData = $('Process CVE Data').first().json;\n\nreturn [{\n  json: {\n    postContent: postContent,\n    imageUrl: imageUrl,\n    cveId: cveData.cveId,\n    severity: cveData.severity,\n    cvssScore: cveData.cvssScore,\n    createdAt: new Date().toISOString(),\n    status: 'pending_review',\n    language: 'ENG',\n    charCount: postContent.length,\n    hashtagCount: (postContent.match(/#/g) || []).length\n  }\n}];"
+      },
+      "id": "combine-content",
+      "name": "Combine Content & Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#linkedin-posts",
+        "text": "🚨 *New LinkedIn Post Ready for Review*\n\n*CVE:* {{ $json.cveId }}\n*Severity:* {{ $json.severity }} ({{ $json.cvssScore }})\n*Language:* {{ $json.language }}\n*Characters:* {{ $json.charCount }}\n\n---\n*POST CONTENT:*\n\n{{ $json.postContent }}\n\n---\n\n*Image:* {{ $json.imageUrl }}\n\n_React with ✅ to approve or ❌ to reject_",
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        }
+      },
+      "id": "slack-review",
+      "name": "Send to Slack for Review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1500, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "YOUR_SLACK_CREDENTIAL_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toEmail": "your-email@example.com",
+        "subject": "LinkedIn Post Ready: {{ $json.cveId }}",
+        "emailType": "html",
+        "html": "<h2>New LinkedIn Post for Review</h2>\n<p><strong>CVE:</strong> {{ $json.cveId }}</p>\n<p><strong>Severity:</strong> {{ $json.severity }} ({{ $json.cvssScore }})</p>\n<hr>\n<h3>Post Content:</h3>\n<pre>{{ $json.postContent }}</pre>\n<hr>\n<p><strong>Image Preview:</strong></p>\n<img src=\"{{ $json.imageUrl }}\" style=\"max-width: 600px;\">\n<hr>\n<p>To publish, click the approval link or reply to this email.</p>",
+        "options": {}
+      },
+      "id": "email-review",
+      "name": "Send Email for Review",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1500, 400],
+      "credentials": {
+        "smtp": {
+          "id": "YOUR_SMTP_CREDENTIAL_ID",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendToSheet",
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "sheetName": "Posts",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "A": "={{ $json.createdAt }}",
+            "B": "={{ $json.cveId }}",
+            "C": "={{ $json.severity }}",
+            "D": "={{ $json.language }}",
+            "E": "={{ $json.postContent }}",
+            "F": "={{ $json.imageUrl }}",
+            "G": "={{ $json.status }}"
+          }
+        }
+      },
+      "id": "save-to-sheet",
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [1500, 600],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "linkedin-approve",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "approval-webhook",
+      "name": "Webhook: Approval",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [1750, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://api.linkedin.com/v2/ugcPosts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "linkedInOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"author\": \"urn:li:person:YOUR_LINKEDIN_PERSON_ID\",\n  \"lifecycleState\": \"PUBLISHED\",\n  \"specificContent\": {\n    \"com.linkedin.ugc.ShareContent\": {\n      \"shareCommentary\": {\n        \"text\": \"{{ $json.postContent }}\"\n      },\n      \"shareMediaCategory\": \"IMAGE\",\n      \"media\": [\n        {\n          \"status\": \"READY\",\n          \"description\": {\n            \"text\": \"{{ $json.cveId }} - {{ $json.severity }}\"\n          },\n          \"originalUrl\": \"{{ $json.imageUrl }}\"\n        }\n      ]\n    }\n  },\n  \"visibility\": {\n    \"com.linkedin.ugc.MemberNetworkVisibility\": \"PUBLIC\"\n  }\n}",
+        "options": {}
+      },
+      "id": "post-to-linkedin",
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 200],
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "YOUR_LINKEDIN_CREDENTIAL_ID",
+          "name": "LinkedIn OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, postId: $json.id, message: 'Posted to LinkedIn successfully!' } }}"
+      },
+      "id": "response-success",
+      "name": "Response: Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2250, 200]
+    },
+    {
+      "parameters": {},
+      "id": "no-op",
+      "name": "No New CVEs",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1000, 500]
+    }
+  ],
+  "connections": {
+    "Schedule: Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent CVEs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent CVEs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recent CVEs": {
+      "main": [
+        [
+          {
+            "node": "Process CVE Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process CVE Data": {
+      "main": [
+        [
+          {
+            "node": "Has CVE Data?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has CVE Data?": {
+      "main": [
+        [
+          {
+            "node": "No New CVEs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate Post Content",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Visual (DALL-E)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Post Content": {
+      "main": [
+        [
+          {
+            "node": "Combine Content & Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Visual (DALL-E)": {
+      "main": [
+        [
+          {
+            "node": "Combine Content & Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Content & Image": {
+      "main": [
+        [
+          {
+            "node": "Send to Slack for Review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email for Review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Approval": {
+      "main": [
+        [
+          {
+            "node": "Post to LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Response: Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "linkedin",
+      "id": "1"
+    },
+    {
+      "name": "automation",
+      "id": "2"
+    },
+    {
+      "name": "security",
+      "id": "3"
+    }
+  ],
+  "triggerCount": 2,
+  "updatedAt": "2025-12-12T00:00:00.000Z",
+  "versionId": "1"
+}
