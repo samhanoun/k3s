@@ -1,0 +1,12 @@
+{
+  "name": "mcp-n8n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server that wraps the n8n REST API",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.25.0"
+  }
+}
