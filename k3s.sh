@@ -32,6 +32,8 @@ master2=192.168.1.198
 master3=192.168.1.46
 worker1=192.168.1.171
 worker2=192.168.1.113
+worker3=192.168.1.200  # Hyper-V node
+worker4=192.168.1.201  # Hyper-V node
 
 # User of remote machines
 user=tech
@@ -46,13 +48,13 @@ vip=192.168.1.50
 masters=($master2 $master3)
 
 # Array of worker nodes
-workers=($worker1 $worker2)
+workers=($worker1 $worker2 $worker3 $worker4)
 
 # Array of all
-all=($master1 $master2 $master3 $worker1 $worker2)
+all=($master1 $master2 $master3 $worker1 $worker2 $worker3 $worker4)
 
 # Array of all minus master
-allnomaster1=($master2 $master3 $worker1 $worker2)
+allnomaster1=($master2 $master3 $worker1 $worker2 $worker3 $worker4)
 
 #Loadbalancer IP range
 lbrange=192.168.1.60-192.168.1.80

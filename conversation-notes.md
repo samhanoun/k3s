@@ -248,4 +248,60 @@ k3s/
 
 ---
 
-*Last Updated: November 29, 2025*
+## Session 3: December 25, 2025 - Hyper-V Node Expansion
+
+### 1. Added Two New Worker Nodes via Hyper-V
+
+**Why Hyper-V?**
+- Expanding cluster capacity using local Windows machine
+- VMs running alongside Proxmox nodes on home network
+
+**New Nodes Created:**
+
+| Node | IP | Location | Specs | K3S Version |
+|------|-----|----------|-------|-------------|
+| k3s-06 | 192.168.1.200 | Hyper-V | 4 CPU, 4GB RAM, 30GB | v1.33.6+k3s1 |
+| k3s-07 | 192.168.1.201 | Hyper-V | 4 CPU, 4GB RAM, 30GB | v1.33.6+k3s1 |
+
+**Setup Process:**
+1. Created PowerShell script `scripts/create-hyperv-vms.ps1` for VM automation
+2. Installed Ubuntu 24.04 Server on both VMs
+3. Configured static IPs and SSH keys
+4. Joined nodes to K3S cluster using k3sup token
+
+**Files Created:**
+- `scripts/create-hyperv-vms.ps1` - PowerShell script for Hyper-V VM creation
+- `docs/HYPERV_SETUP.md` - Comprehensive setup guide
+
+**Files Updated:**
+- `ansible/inventory/hosts.yaml` - Added new nodes with `location` tags (proxmox/hyperv)
+- `k3s.sh` - Added worker3 and worker4 IP addresses
+
+### 2. Current Cluster Architecture (7 Nodes)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     K3S HA Cluster                              │
+├─────────────────────────────────────────────────────────────────┤
+│  CONTROL PLANE (Proxmox)           │  WORKERS                  │
+│  ─────────────────────────         │  ───────────────────────  │
+│  k3s-03: 192.168.1.46              │  k3s-01: 192.168.1.113    │
+│  k3s-04: 192.168.1.198             │  k3s-02: 192.168.1.171    │
+│  k3s-05: 192.168.1.92              │  k3s-06: 192.168.1.200 *  │
+│                                    │  k3s-07: 192.168.1.201 *  │
+│  VIP: 192.168.1.50 (Kube-VIP)      │  * = Hyper-V nodes        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3. Note: K3S Version Mismatch
+
+| Location | Nodes | K3S Version |
+|----------|-------|-------------|
+| Proxmox | k3s-01 to k3s-05 | v1.26.10+k3s2 |
+| Hyper-V | k3s-06, k3s-07 | v1.33.6+k3s1 |
+
+The new nodes run a newer K3S version. Consider upgrading Proxmox nodes for consistency.
+
+---
+
+*Last Updated: December 25, 2025*

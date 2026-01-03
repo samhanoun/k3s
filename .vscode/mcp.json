@@ -1,4 +1,12 @@
 {
-  "servers": {},
+  "servers": {
+    "n8n": {
+      "command": "node",
+      "args": ["tools/mcp-n8n/index.js"],
+      "env": {
+        "N8N_BASE_URL": "http://192.168.1.66:5678"
+      }
+    }
+  },
   "inputs": []
 }

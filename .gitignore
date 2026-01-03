@@ -8,3 +8,8 @@ id_ed25519.pub
 apps/*/secret.yaml
 **/secret.yaml
 !**/sealed-secret.yaml
+
+# Node
+**/node_modules/
+.env
+.env.*
